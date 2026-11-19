@@ -1,0 +1,25 @@
+$kind: http-request
+name: "Repetir con la MISMA clave: mismo pedido"
+description: Devuelve el pedido en su estado ACTUAL, sin volver a cobrar. En Mailpit sale un solo correo.
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{repeatKey}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productLibro}}",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: afterResponse
+    code: "pm.test('no crea otro pedido: mismo id', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('repeatOrderId')));"
+    language: text/javascript
+order: 2000

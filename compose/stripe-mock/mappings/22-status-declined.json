@@ -1,0 +1,22 @@
+{
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/v1/payment_intents/pi_declined_[A-Za-z0-9]+"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "object": "payment_intent",
+      "id": "{{request.pathSegments.[2]}}",
+      "status": "requires_payment_method",
+      "last_payment_error": {
+        "code": "card_declined",
+        "decline_code": "generic_decline"
+      }
+    }
+  }
+}

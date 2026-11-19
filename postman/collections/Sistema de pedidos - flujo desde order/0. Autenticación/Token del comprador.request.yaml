@@ -1,0 +1,25 @@
+$kind: http-request
+description: Password grant en el realm order. El email del pedido sale de este token, nunca del cuerpo.
+url: "{{keycloakUrl}}/realms/order/protocol/openid-connect/token"
+method: POST
+headers:
+  Content-Type: application/x-www-form-urlencoded
+body:
+  type: urlencoded
+  content:
+    grant_type: password
+    client_id: order-spring-test
+    username: "{{buyerUsername}}"
+    password: "{{buyerPassword}}"
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      const token = pm.response.json().access_token;
+      pm.collectionVariables.set('token', token);
+      const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      pm.test('el token trae el claim email', () => pm.expect(claims.email).to.be.a('string'));
+    language: text/javascript
+order: 1000

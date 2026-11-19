@@ -22,6 +22,45 @@ Para entender cómo encajan, por qué están hechos así y qué pasa cuando algo
 > **Para levantar un servicio** hay que generar antes su configuración local con `keel-spring build`:
 > `deploy/.env` e `infra/test-credentials.env` no se versionan porque llevan credenciales de prueba.
 
+## Probar el flujo completo
+
+El [`docker-compose.yaml`](docker-compose.yaml) de la raíz levanta los tres servicios sobre una
+infraestructura compartida (PostgreSQL, RabbitMQ, Keycloak y Mailpit) y los deja listos para que **solo
+tengas que hacer peticiones a order**: un pedido se cobra en payment y el correo aparece en Mailpit.
+
+Stripe va **simulado** con WireMock ([`compose/stripe-mock`](compose/stripe-mock/mappings/)), así que no
+hace falta cuenta ni clave: el resultado del cobro lo decide la tarjeta de prueba que mandes, igual que en
+Stripe real. Si tienes una clave `sk_test_…`, puedes usar Stripe real poniéndola en un `.env` (ver
+[`.env.example`](.env.example)).
+
+1. (Opcional) Copia `.env.example` como `.env` si quieres cambiar puertos o usar Stripe real.
+2. `bash up.sh`: construye las imágenes, arranca el sistema y espera a que termine la siembra.
+3. Lanza las peticiones con la colección de Postman (empieza por «0. Autenticación»):
+   - **Import**: el archivo [`postman/order-flujo.postman_collection.json`](postman/order-flujo.postman_collection.json)
+     (formato clásico v2.1; el botón Import no acepta la carpeta v3).
+   - **Local Files → Open Folder** con la raíz del repo: Postman lee la versión v3 de
+     [`postman/collections/`](postman/collections/).
+   - **Terminal**: `postman collection run "postman/collections/Sistema de pedidos - flujo desde order"`.
+
+   Las mismas
+   peticiones están en [`compose/requests.http`](compose/requests.http) para VS Code. Los correos se ven en
+   http://localhost:8025.
+4. `bash down.sh` para apagarlo (`bash down.sh -v` borra también la base y vuelve a sembrar al subir).
+
+La siembra ([`compose/seed/seed.sh`](compose/seed/seed.sh)) crea el comprador `buyer`, el cliente M2M con el
+que order llama a payment, el remitente y las tres plantillas de correo, y emula tres productos del catálogo.
+
+Dos ajustes son **parches de despliegue**, no del diseño:
+
+- notifications escucha en un canal genérico (`any-registered-system.events`) y order publica en el suyo
+  (`order.events`). La siembra los une con un binding entre exchanges.
+- notifications solo acepta eventos de emisores registrados, y order no estaba en la lista. Se añade por
+  configuración.
+
+El arreglo de verdad es declarar a order como emisor en el diseño de notifications (`/keel-evolve
+specs/notifications`). Los avisos (webhooks) de Stripe no llegan a localhost: payment conoce el desenlace por
+la respuesta síncrona y por su barrido.
+
 > Edita libremente esta introducción para describir tu organización, convenciones o cómo contribuir.
 > La tabla de la sección **Servicios diseñados** la genera `keel index` (lo ejecutan `/keel-design` al
 > cerrar un diseño, `/keel-handoff` y `/keel-docs`); **no edites a mano el contenido entre los

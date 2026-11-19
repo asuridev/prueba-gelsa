@@ -1,0 +1,29 @@
+$kind: http-request
+description: "Un rechazo de tarjeta no es un error HTTP: responde 201 con el pedido en paymentFailed."
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productLibro}}",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_chargeDeclined"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const order = pm.response.json();
+      pm.collectionVariables.set('declinedOrderId', order.id);
+      pm.test('estado: ' + order.status, () => pm.expect(["paymentFailed"]).to.include(order.status));
+      pm.test('motivo: declined', () => pm.expect(order.failureReason).to.eql('declined'));
+    language: text/javascript
+order: 1000

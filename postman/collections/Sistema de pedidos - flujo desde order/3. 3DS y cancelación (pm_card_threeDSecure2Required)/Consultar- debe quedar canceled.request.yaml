@@ -1,0 +1,17 @@
+$kind: http-request
+name: "Consultar: debe quedar canceled"
+url: "{{orderBaseUrl}}/orders/{{threeDsOrderId}}"
+method: GET
+scripts:
+  - type: beforeRequest
+    code: |-
+      // Da unos segundos a que el evento de payment llegue a order y lo mueva de estado.
+      setTimeout(() => {}, 4000);
+    language: text/javascript
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      const order = pm.response.json();
+      pm.test('estado final canceled', () => pm.expect(order.status, 'si aún no llegó, repite la petición').to.eql('canceled'));
+    language: text/javascript
+order: 3000

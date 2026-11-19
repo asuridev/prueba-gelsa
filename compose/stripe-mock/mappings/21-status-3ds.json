@@ -1,0 +1,22 @@
+{
+  "priority": 5,
+  "request": {
+    "method": "GET",
+    "urlPathPattern": "/v1/payment_intents/pi_3ds_[A-Za-z0-9]+"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "object": "payment_intent",
+      "id": "{{request.pathSegments.[2]}}",
+      "status": "requires_action",
+      "client_secret": "pi_3ds_secret_simulado",
+      "next_action": {
+        "type": "use_stripe_sdk"
+      }
+    }
+  }
+}

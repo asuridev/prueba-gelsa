@@ -1,0 +1,11 @@
+$kind: http-request
+name: "Pedido que no existe: 404"
+url: "{{orderBaseUrl}}/orders/99999999-9999-4999-8999-999999999999"
+method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('404', () => pm.response.to.have.status(404));
+      pm.test('code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));
+    language: text/javascript
+order: 2000

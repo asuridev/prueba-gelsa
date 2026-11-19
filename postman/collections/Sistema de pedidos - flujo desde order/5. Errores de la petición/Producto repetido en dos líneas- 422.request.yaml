@@ -1,0 +1,30 @@
+$kind: http-request
+name: "Producto repetido en dos líneas: 422"
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productTaza}}",
+          "quantity": 1
+        },
+        {
+          "productId": "{{productTaza}}",
+          "quantity": 2
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('422', () => pm.response.to.have.status(422));
+      pm.test('code DUPLICATE_ORDER_LINE', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_ORDER_LINE'));
+    language: text/javascript
+order: 4000

@@ -1,0 +1,23 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/v1/payment_intents",
+    "bodyPatterns": [
+      {
+        "matches": "(^|.*&)payment_method=pm_card_visa(&.*|$)"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "object": "payment_intent",
+      "id": "pi_visa_{{randomValue length=24 type='ALPHANUMERIC'}}",
+      "status": "requires_capture"
+    }
+  }
+}

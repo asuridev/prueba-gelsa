@@ -1,0 +1,204 @@
+# El sistema completo (order + payment + notifications) sobre infraestructura compartida,
+# para validar el flujo haciendo peticiones solo a order.
+#
+# Se levanta con `bash up.sh` (construye las imágenes y arranca esto). No es el compose de
+# cada servicio (services/*/deploy/), que prueba un servicio aislado con su propia
+# infraestructura: no conviene tener los dos arriba a la vez porque publican los mismos puertos.
+#
+# El servicio `seed` deja el sistema listo para usar: enlaza los canales de RabbitMQ, crea el
+# comprador y el cliente M2M de order, configura el remitente y las plantillas de
+# notifications, y siembra el catálogo. Ver compose/seed/seed.sh.
+name: prueba-gelsa
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - ${DB_PORT:-5432}:5432
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./compose/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - ${RABBITMQ_PORT:-5672}:5672
+      - ${RABBITMQ_UI_PORT:-15672}:15672
+    healthcheck:
+      test: [CMD-SHELL, rabbitmq-diagnostics -q ping]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  # Un solo Keycloak con los tres realms (order, payment, notifications) que exporta cada servicio.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.1
+    command: [start-dev, --import-realm]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      # Los tokens que se piden desde el host (localhost:8180) también valen dentro de la red:
+      # los servicios validan la firma por JWK y la audiencia, no el host del emisor.
+      KC_HOSTNAME: http://localhost:${KEYCLOAK_PORT:-8180}
+    ports:
+      - ${KEYCLOAK_PORT:-8180}:8080
+    volumes:
+      - ./services/order-spring/deploy/keycloak/realm-export.json:/opt/keycloak/data/import/order-realm.json:ro
+      - ./services/payment-spring/deploy/keycloak/realm-export.json:/opt/keycloak/data/import/payment-realm.json:ro
+      - ./services/notifications-spring/deploy/keycloak/realm-export.json:/opt/keycloak/data/import/notifications-realm.json:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  # Servidor SMTP de pruebas: los correos que envía notifications se ven en http://localhost:8025.
+  mailpit:
+    image: axllent/mailpit:v1.31
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - ${MAILPIT_UI_PORT:-8025}:8025
+    healthcheck:
+      test: [CMD-SHELL, /mailpit readyz]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  order:
+    image: order-spring-deploy:latest
+    ports:
+      - ${ORDER_PORT:-8081}:8080
+    environment:
+      PROFILE: develop
+      ORDER_ACTION_REQUIRED_TIMEOUT_HOURS: 1
+      ORDER_PAYMENT_PENDING_TIMEOUT_MINUTES: 1
+      ORDER_PAYMENT_ACTION_RETRY_MINUTES: 1
+      DB_URL: jdbc:postgresql://postgres:5432/order
+      DB_USERNAME: order
+      DB_PASSWORD: changeme
+      RABBITMQ_HOST: rabbitmq
+      TELEMETRY_EXPORT_ENABLED: "false"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/order/protocol/openid-connect/certs
+      SECURITY_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+      # order -> payment: el cliente M2M `order` del realm payment lo crea el seed.
+      # Con el basePath de payment: order añade solo /payments, /payments/{id}/capture...
+      PAYMENT_BASE_URL: http://payment:8080/api/v1
+      PAYMENT_TOKEN_URL: http://keycloak:8080/realms/payment/protocol/openid-connect/token
+      PAYMENT_CLIENT_ID: order
+      PAYMENT_CLIENT_SECRET: ${ORDER_PAYMENT_CLIENT_SECRET:-order-local-secret}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+
+  payment:
+    image: payment-spring-deploy:latest
+    ports:
+      - ${PAYMENT_PORT:-8082}:8080
+    environment:
+      PROFILE: develop
+      PAYMENT_ACTION_REQUIRED_TIMEOUT_HOURS: 1
+      DB_URL: jdbc:postgresql://postgres:5432/payment
+      DB_USERNAME: payment
+      DB_PASSWORD: changeme
+      RABBITMQ_HOST: rabbitmq
+      TELEMETRY_EXPORT_ENABLED: "false"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/payment/protocol/openid-connect/certs
+      # Por defecto, Stripe simulado (stripe-mock). Para usar Stripe real en modo test, pon en .env
+      # STRIPE_BASE_URL=https://api.stripe.com y tu STRIPE_SECRET_KEY=sk_test_...
+      STRIPE_BASE_URL: ${STRIPE_BASE_URL:-http://stripe-mock:8080}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-sk_test_simulado}
+      # Los avisos (webhooks) de Stripe no llegan a localhost; payment conoce el desenlace por la
+      # respuesta síncrona y por su barrido. Este secreto solo hace falta para arrancar.
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-whsec_local}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+      stripe-mock: { condition: service_started }
+
+  # Stripe simulado con WireMock: responde a las llamadas que hace payment (autorizar, capturar,
+  # anular, consultar, devolver). El resultado lo decide la tarjeta de prueba (paymentToken), como
+  # en Stripe real: ver compose/stripe-mock/mappings/. Las peticiones recibidas se ven en
+  # http://localhost:8099/__admin/requests.
+  stripe-mock:
+    image: wiremock/wiremock:3.13.1
+    command: [--global-response-templating]
+    ports:
+      - ${STRIPE_MOCK_PORT:-8099}:8080
+    volumes:
+      - ./compose/stripe-mock:/home/wiremock:ro
+
+  notifications:
+    image: notifications-spring-deploy:latest
+    ports:
+      - ${NOTIFICATIONS_PORT:-8083}:8080
+    environment:
+      PROFILE: develop
+      NOTIFICATIONS_SENDING_TIMEOUT_MINUTES: 2
+      NOTIFICATIONS_PERSONAL_DATA_RETENTION_MONTHS: 18
+      DB_URL: jdbc:postgresql://postgres:5432/notifications
+      DB_USERNAME: notifications
+      DB_PASSWORD: changeme
+      # Parche temporal: notifications aún no tiene su migración baseline (V1__baseline_schema.sql;
+      # se genera con `bash infra/export-schema.sh` al cerrar su generación). Sin ella, el perfil
+      # develop (ddl-auto: validate) no encuentra las tablas y no arranca. Aquí Hibernate las crea a
+      # partir de las entidades. Quitar en cuanto exista el baseline.
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      RABBITMQ_HOST: rabbitmq
+      TELEMETRY_EXPORT_ENABLED: "false"
+      SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWK_SET_URI: http://keycloak:8080/realms/notifications/protocol/openid-connect/certs
+      SECURITY_CORS_ALLOWED_ORIGINS: http://localhost:3000,http://localhost:5173
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_USERNAME: ""
+      MAIL_PASSWORD: ""
+      MAIL_SMTP_AUTH: "false"
+      MAIL_SMTP_STARTTLS: "false"
+      # Parche de despliegue: notifications solo acepta NotificationRequested de emisores
+      # registrados, y order firma sus eventos como `source: order`.
+      SPRING_APPLICATION_JSON: '{"messaging":{"subscriptions":{"notification-requested":{"registered-sources":"order,billing,shipping,dispatch-only"}}}}'
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+      mailpit: { condition: service_healthy }
+
+  # Siembra de un solo uso: corre cuando los tres servicios están sanos y termina. Es idempotente.
+  seed:
+    image: alpine:3.20
+    command: [sh, -c, "apk add --no-cache -q curl jq && sh /seed/seed.sh"]
+    environment:
+      ORDER_PAYMENT_CLIENT_SECRET: ${ORDER_PAYMENT_CLIENT_SECRET:-order-local-secret}
+      BUYER_USERNAME: ${BUYER_USERNAME:-buyer}
+      BUYER_PASSWORD: ${BUYER_PASSWORD:-buyer}
+      BUYER_EMAIL: ${BUYER_EMAIL:-buyer@example.com}
+    volumes:
+      - ./compose/seed:/seed:ro
+      - ./services/notifications-spring/deploy/keycloak/realm-export.json:/realms/notifications.json:ro
+    depends_on:
+      order: { condition: service_healthy }
+      payment: { condition: service_healthy }
+      notifications: { condition: service_healthy }
+    restart: "no"
+
+volumes:
+  db-data:

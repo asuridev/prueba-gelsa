@@ -1,0 +1,97 @@
+### Peticiones a order para validar el flujo completo.
+### Se ejecutan con la extensión REST Client de VS Code (o copia cada una como curl).
+### Antes: `bash up.sh` en la raíz, con la siembra terminada.
+###
+### Tarjetas de prueba (van en paymentToken). Valen igual con el Stripe simulado (por defecto)
+### que con Stripe real en modo test:
+###   pm_card_visa                             -> se aprueba: authorized y luego paid      (correo order-paid)
+###   pm_card_chargeDeclined                   -> se rechaza: paymentFailed (declined)     (correo order-payment-failed)
+###   pm_card_chargeDeclinedInsufficientFunds  -> se rechaza: paymentFailed (insufficientFunds)
+###   pm_card_threeDSecure2Required            -> pide 3DS: actionRequired; al cancelarlo, (correo order-canceled)
+###
+### Productos sembrados (EUR):
+###   11111111-1111-4111-8111-111111111111  Camiseta  19.90
+###   22222222-2222-4222-8222-222222222222  Taza       9.50
+###   33333333-3333-4333-8333-333333333333  Libro     25.00
+###
+### Los correos se ven en http://localhost:8025 (Mailpit).
+
+@order = http://localhost:8081/api/v1
+@keycloak = http://localhost:8180
+
+### 1. Token del comprador (realm order)
+# @name login
+POST {{keycloak}}/realms/order/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id=order-spring-test&username=buyer&password=buyer
+
+###
+@token = {{login.response.body.access_token}}
+
+### 2a. Pedido que se cobra (pm_card_visa) -> authorized, y en unos segundos paid
+# @name paid
+POST {{order}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "lines": [
+    { "productId": "11111111-1111-4111-8111-111111111111", "quantity": 2 },
+    { "productId": "22222222-2222-4222-8222-222222222222", "quantity": 1 }
+  ],
+  "paymentToken": "pm_card_visa"
+}
+
+### Estado del pedido pagado (repítelo hasta ver "paid")
+GET {{order}}/orders/{{paid.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 2b. Pedido con tarjeta rechazada -> paymentFailed (responde 201, no es un error HTTP)
+# @name declined
+POST {{order}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "lines": [ { "productId": "33333333-3333-4333-8333-333333333333", "quantity": 1 } ],
+  "paymentToken": "pm_card_chargeDeclined"
+}
+
+### 2c. Pedido con 3DS -> actionRequired
+# @name threeds
+POST {{order}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: {{$guid}}
+
+{
+  "lines": [ { "productId": "22222222-2222-4222-8222-222222222222", "quantity": 3 } ],
+  "paymentToken": "pm_card_threeDSecure2Required"
+}
+
+### El comprador abandona el 3DS y cancela -> canceling, y en unos segundos canceled
+POST {{order}}/orders/{{threeds.response.body.id}}/cancel
+Authorization: Bearer {{token}}
+
+### Estado del pedido cancelado
+GET {{order}}/orders/{{threeds.response.body.id}}
+Authorization: Bearer {{token}}
+
+### 3. Idempotencia: repite la MISMA petición dos veces con la misma clave.
+###    Devuelve el mismo pedido (en su estado actual) y solo sale un correo.
+POST {{order}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Idempotency-Key: pedido-repetido-0001
+
+{
+  "lines": [ { "productId": "11111111-1111-4111-8111-111111111111", "quantity": 1 } ],
+  "paymentToken": "pm_card_visa"
+}
+
+### 4. Mis pedidos
+GET {{order}}/orders
+Authorization: Bearer {{token}}

@@ -1,0 +1,26 @@
+$kind: http-request
+name: "Producto que no existe: 422"
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "99999999-9999-4999-8999-999999999999",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('422', () => pm.response.to.have.status(422));
+      pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));
+    language: text/javascript
+order: 3000

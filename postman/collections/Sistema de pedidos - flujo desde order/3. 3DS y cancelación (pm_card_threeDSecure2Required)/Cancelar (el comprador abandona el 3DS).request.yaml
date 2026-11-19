@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{orderBaseUrl}}/orders/{{threeDsOrderId}}/cancel"
+method: POST
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('200 OK', () => pm.response.to.have.status(200));
+      pm.test('canceling o canceled', () => pm.expect(['canceling', 'canceled']).to.include(pm.response.json().status));
+    language: text/javascript
+order: 2000

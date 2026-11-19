@@ -1,0 +1,14 @@
+{
+  "priority": 5,
+  "request": {
+    "method": "POST",
+    "url": "/v1/refunds"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{{formData request.body 'form' urlDecode=true}}{\"object\":\"refund\",\"id\":\"re_{{randomValue length=24 type='ALPHANUMERIC'}}\",\"status\":\"succeeded\",\"amount\":{{#if form.amount}}{{form.amount}}{{else}}0{{/if}},\"currency\":\"eur\"}"
+  }
+}

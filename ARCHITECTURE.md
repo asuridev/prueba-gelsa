@@ -38,7 +38,7 @@ order. Se construyen primero los proveedores y al final el consumidor, que se di
   responde «aceptado» y envía después, con la garantía de no duplicar ningún mensaje.
 
 Las tres piezas comparten la misma forma: una API propia, una base PostgreSQL propia, y eventos
-publicados con *outbox* transaccional sobre RabbitMQ. La sección 5 detalla
+publicados con *outbox* transaccional sobre RabbitMQ. La sección 6 detalla
 cada servicio: su responsabilidad, sus datos, sus contratos y su comportamiento ante fallos.
 
 ## 3. Infraestructura
@@ -53,7 +53,7 @@ quedó en su `keel-stack.json`:
 | Broker | RabbitMQ | Canales de eventos, con DLQ por suscripción |
 | Identidad | Keycloak (OIDC) | Tokens de comprador, de back-office y de máquina (M2M) |
 | Telemetría | OpenTelemetry | Trazas que cruzan HTTP y eventos |
-| Pasarela de pago | **Stripe**, por su API REST (Payment Intents) con HTTP plano, sin SDK | Solo payment la usa; el diseño no la nombra y la trata como intercambiable. Ver [Integración con Stripe](#522-integración-con-stripe) |
+| Pasarela de pago | **Stripe**, por su API REST (Payment Intents) con HTTP plano, sin SDK | Solo payment la usa; el diseño no la nombra y la trata como intercambiable. Ver [Integración con Stripe](#622-integración-con-stripe) |
 | Correo | SMTP | Solo notifications; el proveedor es configuración de despliegue |
 
 Cambiar RabbitMQ por Kafka, o Stripe por otra pasarela, no toca el diseño: se vuelve a generar con
@@ -86,7 +86,7 @@ no por sus tablas.
 **Qué se gana.**
 
 - *Los fallos no se contagian.* Si notifications se cae, el pedido avanza igual; si Stripe se cae, el
-  comprador sigue recibiendo un pedido en un estado honesto (sección 8).
+  comprador sigue recibiendo un pedido en un estado honesto (sección 9).
 - *Cada riesgo vive en un solo lugar.* Un cambio en las plantillas no puede romper un cobro.
 - *Los secretos quedan acotados.* Solo payment tiene la clave de Stripe.
 - *Cada uno escala por su cuenta.* Los tres no soportan la misma carga ni por los mismos motivos: order
@@ -96,7 +96,7 @@ no por sus tablas.
   ya lo contempla: con varias instancias de order, cada una reclama un lote distinto en el barrido.
 
 **Qué cuesta.** Más piezas que operar y una red en medio que puede fallar, perder una respuesta o
-entregar un mensaje dos veces. Todo lo de la sección 7 (idempotencia, outbox, barridos) existe para pagar
+entregar un mensaje dos veces. Todo lo de la sección 8 (idempotencia, outbox, barridos) existe para pagar
 ese precio. Un único servicio habría sido más simple de operar; se separó porque equivocarse al cobrar o
 al enviar cuesta más que operar tres piezas.
 
@@ -116,7 +116,7 @@ son avisos de que *algo pasó*, y para eso un broker encaja mejor que una llamad
   un cobro, se suscribe al evento sin tocar a quien lo publica.
 - **Si el destinatario está caído, el mensaje espera.** Con una llamada directa, notifications caído
   significaría un correo perdido o un pedido bloqueado. Con el broker, `NotificationRequested` queda en la
-  cola hasta que vuelve (sección 8).
+  cola hasta que vuelve (sección 9).
 - **Entrega fiable.** Cada servicio escribe el evento en su *outbox*, en la misma transacción que el
   cambio de estado, y un relay lo publica después. Cada suscripción reintenta con espera creciente y, si
   un mensaje no hay manera, lo aparta a una cola de mensajes muertos para que no bloquee a los demás.
@@ -126,7 +126,7 @@ pide necesita una respuesta ahora. La regla es sencilla: *si necesito algo y esp
 anuncio que algo ocurrió, evento.*
 
 **Qué cuesta.** El broker entrega cada mensaje **al menos una vez**, así que puede llegar repetido. Por
-eso los suscriptores se protegen contra duplicados (secciones 5.x.1 y 7).
+eso los suscriptores se protegen contra duplicados (secciones 6.x.1 y 8).
 
 ### 4.3 Por qué RabbitMQ
 
@@ -180,9 +180,9 @@ diseños.
 | Servidor de identidad | Un único emisor de tokens para personas, back-office y máquinas | Un servicio crítico más: si cae, nadie obtiene tokens nuevos | Sí |
 | Keycloak | OIDC, roles y *client-credentials* en una sola herramienta que se autoaloja | Operarlo y mantenerlo | Sí, se regenera con otro IdP |
 
-## 5. Cada servicio
+## 6. Cada servicio
 
-### 5.1 order — el pedido y su cobro
+### 6.1 order — el pedido y su cobro
 
 Es la puerta de entrada del comprador: recibe sus pedidos, calcula cuánto hay que cobrar y se lo pide
 a payment.
@@ -221,7 +221,7 @@ Y este es el ciclo de vida del pedido:
 El ciclo de vida de `Order` es un **espejo simplificado** del de `Payment`: order no necesita saber que
 un cobro está `capturing`; le basta con saber que está `authorized` hasta que llega `PaymentCaptured`.
 
-#### 5.1.1 Idempotencia en order
+#### 6.1.1 Idempotencia en order
 
 order sabe que le van a repetir cosas: el comprador hace doble clic o reintenta tras un timeout, y
 RabbitMQ puede entregar dos veces el mismo evento. Para que ninguna repetición cree un segundo pedido ni
@@ -258,7 +258,7 @@ sobre un pedido que ya está `paid` no hace nada, ni vuelve a pedir el correo.
 | payment | `chargeRequestId = order:<id>` | payment devuelve el mismo cobro, sin volver a llamar a Stripe. Es lo que permite reintentar la llamada automáticamente |
 | notifications | `idempotencyKey = order:<id>:<desenlace>` (`paid`, `payment-failed`, `canceled`) | Un solo correo por desenlace, aunque el evento se entregue dos veces |
 
-### 5.2 payment — cobrar sin saber qué se vende
+### 6.2 payment — cobrar sin saber qué se vende
 
 Es la infraestructura de cobro: autoriza, captura, anula y devuelve importes con tarjeta que le piden
 otros servidores, y admite 3DS.
@@ -287,7 +287,7 @@ Cuatro detalles que explican el diagrama:
 - **El cobro apunta al medio solo por valor.** `paymentMethodId` es opcional, y el medio tiene que ser del
   `Wallet` con el mismo `customerRef` que el cobro.
 - **Las claves de negocio son únicas.** `chargeRequestId` y `refundRequestId` no se pueden repetir: son las
-  guardas de idempotencia que se explican en la sección 5.2.1. Y de la tarjeta solo se guardan la marca,
+  guardas de idempotencia que se explican en la sección 6.2.1. Y de la tarjeta solo se guardan la marca,
   los últimos 4 dígitos y la caducidad; la referencia de Stripe del medio es sensible y nunca sale en una
   respuesta.
 
@@ -301,7 +301,7 @@ no lo repite a ciegas; y dos acciones incompatibles (capturar y anular) no puede
 pasarela. Si Stripe rechaza una captura, una anulación o una devolución, el cobro vuelve al estado
 anterior (`authorized` o `captured`).
 
-#### 5.2.1 Idempotencia en payment
+#### 6.2.1 Idempotencia en payment
 
 payment sabe que **su consumidor va a repetir peticiones**: tras un timeout, un reintento automático o
 un doble clic. Por eso cada operación con efectos tiene una guarda propia, y la guarda no es siempre
@@ -364,7 +364,7 @@ el medio guardado, de modo que no puede existir una clave sin recurso detrás. U
 clave**: tras un rechazo, un 3DS pendiente o una pasarela que no contestó, se puede reintentar con la
 misma. Una fila caducada se trata como inexistente aunque la purga aún no haya pasado.
 
-#### 5.2.2 Integración con Stripe
+#### 6.2.2 Integración con Stripe
 
 La pasarela de pago es **Stripe**, y payment es el único servicio que habla con ella. Se usa su
 **API REST de Payment Intents**, llamada por HTTP directo (sin el SDK de Stripe) desde
@@ -422,7 +422,7 @@ a Stripe como `payment_method`. Ningún servicio nuestro lo guarda ni ve la tarj
 - Stripe queda detrás del puerto `PaymentGateway`. El dominio y los demás servicios no conocen sus
   tipos, así que cambiar de pasarela implica reescribir ese adaptador, no el diseño.
 
-#### 5.2.3 Resiliencia al consumir payment (order → payment)
+#### 6.2.3 Resiliencia al consumir payment (order → payment)
 
 order es el único consumidor de payment. Llama a su API con **Resilience4j** sobre un cliente HTTP
 declarado en el diseño (`specs/order/http-clients.keel.yaml`) y materializado en `PaymentHttpAdapter`.
@@ -471,7 +471,7 @@ La combinación forma tres capas: **reintento** para el fallo pasajero, **circui
 caída sostenida y **barrido de reconciliación** para lo que ninguna de las dos resuelve. Las tres
 apoyadas en la idempotencia de payment.
 
-### 5.3 notifications — enviar cada correo una sola vez
+### 6.3 notifications — enviar cada correo una sola vez
 
 Es quien envía el correo transaccional: otros servicios le piden un correo y él lo compone, lo envía y
 avisa del resultado, **una sola vez**.
@@ -512,7 +512,7 @@ Y este es el flujo de un mensaje:
 **Qué publica.** El desenlace en `notificationEvents` (`EmailSent`, `EmailDeliveryFailed`). order no los
 escucha: el correo no cambia el estado de un pedido.
 
-#### 5.3.1 Idempotencia en notifications
+#### 6.3.1 Idempotencia en notifications
 
 notifications sabe que le van a pedir el mismo correo más de una vez: el llamante reintenta tras un
 timeout, y el evento `NotificationRequested` llega por un canal que puede entregar dos veces. Y sabe
@@ -562,7 +562,7 @@ y eso es una decisión del llamante. Una petición que llega por evento y falla 
 mensajes muertos, y como la idempotencia hace segura la reinyección, se puede volver a publicar sin
 riesgo de duplicar.
 
-## 6. El flujo de una compra
+## 7. El flujo de una compra
 
 Esta sección cuenta una compra de principio a fin, para ver cómo trabajan juntos los tres servicios. Hay
 dos recorridos: el que sale bien y el del comprador que empieza a pagar con 3DS y lo abandona.
@@ -570,7 +570,7 @@ dos recorridos: el que sale bien y el del comprador que empieza a pagar con 3DS 
 Los diagramas se leen de arriba abajo. Las flechas continuas son llamadas, las discontinuas son
 respuestas y las de punta abierta son eventos que viajan por RabbitMQ.
 
-### 6.1 Compra con pago aprobado
+### 7.1 Compra con pago aprobado
 
 El comprador hace el pedido, order lo registra con el precio que vio y le pide a payment que cobre.
 Stripe autoriza el importe, el comprador recibe su pedido ya autorizado y, por detrás, un evento hace que
@@ -621,7 +621,7 @@ sequenceDiagram
 - **Un rechazo de tarjeta no es un error.** `createOrder` responde `201` con el pedido en
   `paymentFailed`. Un error HTTP significa que la petición estaba mal, no que el banco dijo que no.
 
-### 6.2 Con 3DS y el comprador que abandona
+### 7.2 Con 3DS y el comprador que abandona
 
 Con 3DS, el banco le pide al comprador un paso extra para confirmar el pago. Si lo completa, el pedido
 sigue el camino de arriba. Si lo abandona, puede cancelar: order le pide a payment que anule la
@@ -662,7 +662,7 @@ sequenceDiagram
   `idempotencyKey` de la forma `order:<id>:<desenlace>`. Aunque un evento se entregue dos veces, el
   comprador recibe un único correo.
 
-## 7. Patrones de fiabilidad (y por qué están)
+## 8. Patrones de fiabilidad (y por qué están)
 
 Con tres servicios y una red en medio, las cosas se rompen de formas pequeñas: se pierde una respuesta,
 un mensaje llega dos veces, un servicio tarda más de la cuenta. Estos ocho patrones son lo que evita que
@@ -696,7 +696,7 @@ el comprador se entere. Cada uno responde a una pregunta concreta.
   barrido y una anulación del comprador pueden coincidir sobre el mismo pedido: si dos escrituras compiten,
   una pierde con `409` y se reintenta, y ninguna pisa a la otra.
 
-### 7.1 El barrido de order, la red de seguridad
+### 8.1 El barrido de order, la red de seguridad
 
 Es la pieza que cierra todo el flujo: si algo falló por el camino, el barrido lo encuentra. Mira cuatro
 esperas:
@@ -710,7 +710,7 @@ esperas:
 
 Procesa 100 pedidos por ciclo y, con varias instancias, cada una reclama un lote distinto.
 
-## 8. Qué pasa cuando algo se cae
+## 9. Qué pasa cuando algo se cae
 
 Ninguna pieza es infalible, así que el diseño decide de antemano qué ve el comprador y cómo se arregla
 cada caída.
@@ -734,7 +734,7 @@ cada caída.
 La regla de fondo: **ante la duda, un estado intermedio honesto antes que un error**. Un timeout no
 distingue «no llegó» de «se cobró», así que order no se inventa ninguna de las dos.
 
-## 9. Seguridad y datos personales
+## 10. Seguridad y datos personales
 
 Esta solución maneja dinero, tarjetas y correos de personas reales, así que la seguridad se decide por
 una pregunta sencilla: *¿quién es quien pide esto y qué se le permite ver o hacer?* Estas son las
@@ -761,9 +761,9 @@ respuestas.
   `customerEmail`, destinatarios, asuntos renderizados…) nunca aparecen en logs ni trazas. Los
   `sensitive` (la referencia de Stripe de un medio guardado, las variables de un correo) tampoco salen en
   ninguna respuesta. notifications purga los datos personales a los 18 meses; order, de momento, los
-  conserva sin plazo (sección 10).
+  conserva sin plazo (sección 11).
 
-### 9.1 Las tres credenciales del flujo de compra
+### 10.1 Las tres credenciales del flujo de compra
 
 En una compra viajan tres credenciales distintas y es fácil confundirlas. Cada una la emite un sistema
 distinto y sirve para algo distinto.
@@ -777,7 +777,7 @@ distinto y sirve para algo distinto.
 **Qué conviene fijarse.** El token de usuario no se reenvía a payment, y el `paymentToken` no pasa por
 Keycloak. Cada credencial llega solo hasta donde le toca.
 
-## 10. Limitaciones conocidas y siguientes pasos
+## 11. Limitaciones conocidas y siguientes pasos
 
 - **catalog está emulado.** El contrato de `ProductUpserted` y `ProductRetired` es una **propuesta** de
   order. Cuando exista el catalog real, su `INTEGRATION.md` sustituye a la propuesta, y hay que
@@ -792,7 +792,7 @@ Keycloak. Cada credencial llega solo hasta donde le toca.
 Cualquier cambio de los anteriores entra por el diseño (`/keel-evolve specs/<servicio>`) y llega al
 código con `keel-spring build --refresh --prune`. Nunca se toca primero `services/`.
 
-## 11. Para profundizar
+## 12. Para profundizar
 
 | Servicio | Diseño | Contrato servidor a servidor | Contratos formales |
 |---|---|---|---|

@@ -13,3 +13,6 @@ services/*/infra/test-credentials.env
 # (cada servicio ya ignora build/; bin/ no estaba cubierto).
 services/*/bin/
 services/*/build/
+
+# Clave de Stripe y configuración local del compose de la raíz
+.env

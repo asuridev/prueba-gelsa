@@ -1,0 +1,33 @@
+$kind: http-request
+description: "2 camisetas (19.90) + 1 taza (9.50) = 49.30 EUR. El precio no viaja en la petición: lo calcula order."
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productCamiseta}}",
+          "quantity": 2
+        },
+        {
+          "productId": "{{productTaza}}",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const order = pm.response.json();
+      pm.collectionVariables.set('paidOrderId', order.id);
+      pm.test('estado: ' + order.status, () => pm.expect(["authorized", "paid", "pendingPayment"]).to.include(order.status));
+      pm.test('importe calculado por order: 49.30', () => pm.expect(Number(order.totalAmount)).to.eql(49.30));
+    language: text/javascript
+order: 1000

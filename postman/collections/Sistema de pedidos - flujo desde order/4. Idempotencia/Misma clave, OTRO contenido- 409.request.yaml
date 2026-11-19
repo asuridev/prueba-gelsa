@@ -1,0 +1,26 @@
+$kind: http-request
+name: "Misma clave, OTRO contenido: 409"
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{repeatKey}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productTaza}}",
+          "quantity": 3
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('409', () => pm.response.to.have.status(409));
+      pm.test('code IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));
+    language: text/javascript
+order: 3000

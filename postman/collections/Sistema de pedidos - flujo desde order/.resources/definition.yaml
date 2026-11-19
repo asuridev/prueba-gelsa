@@ -1,0 +1,31 @@
+$kind: collection
+id: 8a579ecd-03ae-4835-bcdc-1f6c23b9e9e6
+name: Sistema de pedidos — flujo desde order
+description: |-
+  Pruebas manuales del flujo completo haciendo peticiones solo a order.
+
+  Antes: `bash up.sh` en la raíz del repo, con la siembra terminada.
+
+  Empieza siempre por **0. Autenticación**: guarda el token del comprador en la variable `token`, que usan todas las demás peticiones. La colección se puede ejecutar entera con el Collection Runner.
+
+  El resultado del cobro lo decide la tarjeta de prueba (`paymentToken`), igual con el Stripe simulado que con Stripe real en modo test. Los correos se ven en Mailpit: http://localhost:8025
+variables:
+  orderBaseUrl: http://localhost:8081/api/v1
+  keycloakUrl: http://localhost:8180
+  buyerUsername: buyer
+  buyerPassword: buyer
+  productCamiseta: 11111111-1111-4111-8111-111111111111
+  productTaza: 22222222-2222-4222-8222-222222222222
+  productLibro: 33333333-3333-4333-8333-333333333333
+  token: ""
+  paidOrderId: ""
+  declinedOrderId: ""
+  threeDsOrderId: ""
+  repeatKey: ""
+  repeatOrderId: ""
+auth:
+  - id: 89bb07e7-6175-4d0b-a782-756eeca80c2a
+    type: bearer
+    name: bearer auth
+    credentials:
+      token: "{{token}}"

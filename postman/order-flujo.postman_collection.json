@@ -1,0 +1,701 @@
+{
+  "info": {
+    "_postman_id": "8a579ecd-03ae-4835-bcdc-1f6c23b9e9e6",
+    "name": "Sistema de pedidos — flujo desde order",
+    "description": "Pruebas manuales del flujo completo haciendo peticiones solo a order.\n\nAntes: `bash up.sh` en la raíz del repo, con la siembra terminada.\n\nEmpieza siempre por **0. Autenticación**: guarda el token del comprador en la variable `token`, que usan todas las demás peticiones. La colección se puede ejecutar entera con el Collection Runner.\n\nEl resultado del cobro lo decide la tarjeta de prueba (`paymentToken`), igual con el Stripe simulado que con Stripe real en modo test. Los correos se ven en Mailpit: http://localhost:8025",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Autenticación",
+      "item": [
+        {
+          "name": "Token del comprador",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "url": "{{keycloakUrl}}/realms/order/protocol/openid-connect/token",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "password"
+                },
+                {
+                  "key": "client_id",
+                  "value": "order-spring-test"
+                },
+                {
+                  "key": "username",
+                  "value": "{{buyerUsername}}"
+                },
+                {
+                  "key": "password",
+                  "value": "{{buyerPassword}}"
+                }
+              ]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Password grant en el realm order. El email del pedido sale de este token, nunca del cuerpo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const token = pm.response.json().access_token;",
+                  "pm.collectionVariables.set('token', token);",
+                  "const claims = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));",
+                  "pm.test('el token trae el claim email', () => pm.expect(claims.email).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1. Pago aprobado (pm_card_visa)",
+      "item": [
+        {
+          "name": "Crear pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productCamiseta}}\",\n      \"quantity\": 2\n    },\n    {\n      \"productId\": \"{{productTaza}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            },
+            "description": "2 camisetas (19.90) + 1 taza (9.50) = 49.30 EUR. El precio no viaja en la petición: lo calcula order."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.collectionVariables.set('paidOrderId', order.id);",
+                  "pm.test('estado: ' + order.status, () => pm.expect([\"authorized\", \"paid\", \"pendingPayment\"]).to.include(order.status));",
+                  "pm.test('importe calculado por order: 49.30', () => pm.expect(Number(order.totalAmount)).to.eql(49.30));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar: debe quedar paid",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBaseUrl}}/orders/{{paidOrderId}}"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Da unos segundos a que el evento de payment llegue a order y lo mueva de estado.",
+                  "setTimeout(() => {}, 4000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('estado final paid', () => pm.expect(order.status, 'si aún no llegó, repite la petición').to.eql('paid'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Pago rechazado",
+      "item": [
+        {
+          "name": "Tarjeta rechazada (pm_card_chargeDeclined)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_chargeDeclined\"\n}"
+            },
+            "description": "Un rechazo de tarjeta no es un error HTTP: responde 201 con el pedido en paymentFailed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.collectionVariables.set('declinedOrderId', order.id);",
+                  "pm.test('estado: ' + order.status, () => pm.expect([\"paymentFailed\"]).to.include(order.status));",
+                  "pm.test('motivo: declined', () => pm.expect(order.failureReason).to.eql('declined'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin fondos (pm_card_chargeDeclinedInsufficientFunds)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_chargeDeclinedInsufficientFunds\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.collectionVariables.set('declinedOrderId', order.id);",
+                  "pm.test('estado: ' + order.status, () => pm.expect([\"paymentFailed\"]).to.include(order.status));",
+                  "pm.test('motivo: insufficientFunds', () => pm.expect(order.failureReason).to.eql('insufficientFunds'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. 3DS y cancelación (pm_card_threeDSecure2Required)",
+      "item": [
+        {
+          "name": "Crear pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productTaza}}\",\n      \"quantity\": 3\n    }\n  ],\n  \"paymentToken\": \"pm_card_threeDSecure2Required\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const order = pm.response.json();",
+                  "pm.collectionVariables.set('threeDsOrderId', order.id);",
+                  "pm.test('estado: ' + order.status, () => pm.expect([\"actionRequired\"]).to.include(order.status));",
+                  "pm.test('trae la acción 3DS para el navegador', () => pm.expect(order.customerAction).to.be.an('object'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar (el comprador abandona el 3DS)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{orderBaseUrl}}/orders/{{threeDsOrderId}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('canceling o canceled', () => pm.expect(['canceling', 'canceled']).to.include(pm.response.json().status));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Consultar: debe quedar canceled",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBaseUrl}}/orders/{{threeDsOrderId}}"
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Da unos segundos a que el evento de payment llegue a order y lo mueva de estado.",
+                  "setTimeout(() => {}, 4000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const order = pm.response.json();",
+                  "pm.test('estado final canceled', () => pm.expect(order.status, 'si aún no llegó, repite la petición').to.eql('canceled'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Idempotencia",
+      "item": [
+        {
+          "name": "Crear pedido con una clave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{repeatKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Una clave nueva cada vez que se ejecuta esta petición; las dos siguientes la repiten.",
+                  "pm.collectionVariables.set('repeatKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('repeatOrderId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Repetir con la MISMA clave: mismo pedido",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{repeatKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            },
+            "description": "Devuelve el pedido en su estado ACTUAL, sin volver a cobrar. En Mailpit sale un solo correo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('no crea otro pedido: mismo id', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('repeatOrderId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Misma clave, OTRO contenido: 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{repeatKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productTaza}}\",\n      \"quantity\": 3\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409', () => pm.response.to.have.status(409));",
+                  "pm.test('code IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Errores de la petición",
+      "item": [
+        {
+          "name": "Sin token: 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin Idempotency-Key: 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('code IDEMPOTENCY_KEY_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Producto que no existe: 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"99999999-9999-4999-8999-999999999999\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422', () => pm.response.to.have.status(422));",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Producto repetido en dos líneas: 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productTaza}}\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"{{productTaza}}\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"pm_card_visa\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422', () => pm.response.to.have.status(422));",
+                  "pm.test('code DUPLICATE_ORDER_LINE', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_ORDER_LINE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sin fuente de pago: 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{orderBaseUrl}}/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"{{productLibro}}\",\n      \"quantity\": 1\n    }\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('code PAYMENT_SOURCE_INVALID', () => pm.expect(pm.response.json().code).to.eql('PAYMENT_SOURCE_INVALID'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Consultas",
+      "item": [
+        {
+          "name": "Mis pedidos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBaseUrl}}/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pedido que no existe: 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{orderBaseUrl}}/orders/99999999-9999-4999-8999-999999999999"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404', () => pm.response.to.have.status(404));",
+                  "pm.test('code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "orderBaseUrl",
+      "value": "http://localhost:8081/api/v1"
+    },
+    {
+      "key": "keycloakUrl",
+      "value": "http://localhost:8180"
+    },
+    {
+      "key": "buyerUsername",
+      "value": "buyer"
+    },
+    {
+      "key": "buyerPassword",
+      "value": "buyer"
+    },
+    {
+      "key": "productCamiseta",
+      "value": "11111111-1111-4111-8111-111111111111"
+    },
+    {
+      "key": "productTaza",
+      "value": "22222222-2222-4222-8222-222222222222"
+    },
+    {
+      "key": "productLibro",
+      "value": "33333333-3333-4333-8333-333333333333"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "paidOrderId",
+      "value": ""
+    },
+    {
+      "key": "declinedOrderId",
+      "value": ""
+    },
+    {
+      "key": "threeDsOrderId",
+      "value": ""
+    },
+    {
+      "key": "repeatKey",
+      "value": ""
+    },
+    {
+      "key": "repeatOrderId",
+      "value": ""
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  }
+}

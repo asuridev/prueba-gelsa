@@ -1,0 +1,26 @@
+$kind: http-request
+name: "Sin token: 401"
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productLibro}}",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+auth:
+  type: noauth
+scripts:
+  - type: afterResponse
+    code: pm.test('401', () => pm.response.to.have.status(401));
+    language: text/javascript
+order: 1000

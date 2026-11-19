@@ -1,0 +1,30 @@
+{
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "url": "/v1/payment_intents",
+    "bodyPatterns": [
+      {
+        "matches": "(^|.*&)payment_method=pm_card_threeDSecure2Required(&.*|$)"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "jsonBody": {
+      "object": "payment_intent",
+      "id": "pi_3ds_{{randomValue length=24 type='ALPHANUMERIC'}}",
+      "status": "requires_action",
+      "client_secret": "pi_3ds_secret_simulado",
+      "next_action": {
+        "type": "use_stripe_sdk",
+        "use_stripe_sdk": {
+          "type": "three_d_secure_redirect"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+$kind: http-request
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{$guid}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productTaza}}",
+          "quantity": 3
+        }
+      ],
+      "paymentToken": "pm_card_threeDSecure2Required"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      const order = pm.response.json();
+      pm.collectionVariables.set('threeDsOrderId', order.id);
+      pm.test('estado: ' + order.status, () => pm.expect(["actionRequired"]).to.include(order.status));
+      pm.test('trae la acción 3DS para el navegador', () => pm.expect(order.customerAction).to.be.an('object'));
+    language: text/javascript
+order: 1000

@@ -1,0 +1,43 @@
+service: order
+version: 0.1.0
+generator: keel-spring@0.4.0
+gaps:
+  - layer: use-cases
+    unit: reconcileStalledOrders
+    kind: contradiction
+    source: "reconciliation.yaml generado (unanswered-after-seconds: 1800/600/600) frente a los parámetros order.payment-pending-timeout-minutes, order.payment-action-retry-minutes y order.action-required-timeout-hours"
+    proposal: "Declarar en el diseño una única fuente para los umbrales del barrido (los parámetros del dominio `order.*`) y que el generador no emita las claves `reconciliation.*.unanswered-after-seconds`, que quedan como configuración muerta."
+  - layer: use-cases
+    unit: reconcileStalledOrders
+    kind: undeclared
+    source: "claim-timeout-ms de reconciliación (760 s) frente a umbrales de 1 minuto en local/test"
+    proposal: "Declarar la relación entre el timeout del reclamo y el umbral del barrido: con el reclamo mayor que el umbral, un pedido cuyo barrido renueva su reloj no se vuelve a reclamar hasta que expire el reclamo."
+  - layer: use-cases
+    unit: createOrder, cancelOrder
+    kind: undeclared
+    source: "handlers de createOrder y cancelOrder frente a la transacción que abre el UseCaseMediator"
+    proposal: "Declarar la frontera transaccional de las dos operaciones: el diseño pide confirmar el pedido (pendingPayment / canceling) antes de llamar a payment, lo que no cabe en la transacción única del mediator. Hoy el controller usa dispatchWithoutTransaction; conviene que el diseño lo diga (p. ej. `consistency.transactionalBoundary`) y el generador lo emita."
+  - layer: use-cases
+    unit: reconcileStalledOrders
+    kind: missing
+    source: "validation-scenarios.md"
+    scenario: FL-REC-002
+    proposal: "Fijar en los Given qué líneas llevan los pedidos (producto, cantidad) y su total; la prueba usó P1×1 (y P2×1 para o2) con total 12.50."
+  - layer: use-cases
+    unit: reconcileStalledOrders
+    kind: missing
+    source: "validation-scenarios.md"
+    scenario: FL-REC-004
+    proposal: "Fijar en los Given las líneas y el total del pedido; la prueba usó P1×1 con total 7.25."
+  - layer: use-cases
+    unit: reconcileStalledOrders
+    kind: missing
+    source: "validation-scenarios.md"
+    scenario: FL-REC-005
+    proposal: "Fijar en los Given las líneas y el total del pedido; la prueba usó P1×1 con total 7.25."
+  - layer: use-cases
+    unit: createOrder
+    kind: missing
+    source: "validation-scenarios.md"
+    scenario: FL-ORD-006
+    proposal: "Indicar en el Then del segundo alta (pedido canceled) si el pedido conserva o no el paymentId; la prueba solo afirma status y el correo."

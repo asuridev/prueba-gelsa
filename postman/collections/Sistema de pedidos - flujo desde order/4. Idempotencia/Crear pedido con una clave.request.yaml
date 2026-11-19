@@ -1,0 +1,30 @@
+$kind: http-request
+url: "{{orderBaseUrl}}/orders"
+method: POST
+headers:
+  Idempotency-Key: "{{repeatKey}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "lines": [
+        {
+          "productId": "{{productLibro}}",
+          "quantity": 1
+        }
+      ],
+      "paymentToken": "pm_card_visa"
+    }
+scripts:
+  - type: beforeRequest
+    code: |-
+      // Una clave nueva cada vez que se ejecuta esta petición; las dos siguientes la repiten.
+      pm.collectionVariables.set('repeatKey', pm.variables.replaceIn('{{$guid}}'));
+    language: text/javascript
+  - type: afterResponse
+    code: |-
+      pm.test('201 Created', () => pm.response.to.have.status(201));
+      pm.collectionVariables.set('repeatOrderId', pm.response.json().id);
+    language: text/javascript
+order: 1000
