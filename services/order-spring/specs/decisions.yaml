@@ -1,0 +1,206 @@
+# Decisiones del diseño: estructurales (tomadas por el diseñador, catálogo de /keel-design)
+# y obligaciones aceptadas por escrito (docs/design-obligations.md).
+# No forma parte del DSL: registra qué se decidió, qué se descartó y por qué.
+
+structural:
+  - section: '3.2'
+    scope: use-cases.createOrder.idempotency
+    chosen: client-key 86400
+    discarded: sin idempotencia
+    reason: >-
+      Un doble clic o el reintento de la app tras un timeout crearía otro pedido con otro
+      chargeRequestId, y payment cobraría dos veces al comprador. Con la cabecera Idempotency-Key,
+      recordada 24 h, la repetición devuelve el mismo pedido sin pedir otro cobro.
+    since: 0.1.0
+  - section: '3.3'
+    scope: use-cases.getOrder
+    chosen: sin caché
+    discarded: caché corta invalidada por cada cambio de estado
+    reason: >-
+      El comprador hace polling del pedido mientras espera el desenlace del cobro: una respuesta rancia
+      le mostraría pendiente un pedido ya pagado. Además la respuesta depende de quién pregunta.
+    since: 0.1.0
+  - section: '3.3'
+    scope: use-cases.listMyOrders
+    chosen: sin caché
+    discarded: caché por comprador
+    reason: El listado refleja estados que cambian por eventos de payment; cachearlo mostraría estados viejos y depende del llamante.
+    since: 0.1.0
+  - section: '3.9'
+    scope: persistence.consistency.optimisticLocking
+    chosen: all
+    discarded: none (último gana)
+    reason: >-
+      Sobre el mismo pedido compiten los eventos de payment, el barrido de reconciliación y
+      cancelOrder. Con último-gana, un cancelOrder que leyó el estado anterior podría pisar un
+      PaymentCaptured y dejar cancelado un pedido cobrado. Con bloqueo optimista la segunda escritura
+      falla con 409 CONCURRENT_MODIFICATION; un handler de evento reintenta releyendo el estado.
+    since: 0.1.0
+  - section: '3.1'
+    scope: messaging.publishing.reliability
+    chosen: outbox
+    discarded: best-effort; pedir el correo por HTTP (requestNotification)
+    reason: >-
+      El encargo de correo se escribe en la misma transacción que mueve el pedido a su desenlace: si el
+      broker o notifications están caídos, el correo no se pierde. El diseñador acepta que un rechazo de
+      negocio de notifications (plantilla sin publicar, destinatario suprimido) acabe en la deadLetter de
+      notifications sin que order se entere.
+    since: 0.1.0
+  - section: '3.5'
+    scope: messaging.subscriptions
+    chosen: retry 5 exponencial (1 s, tope 30 s) + deadLetter
+    discarded: retry sin deadLetter; deadLetter sin retry
+    reason: >-
+      Los fallos pasajeros y los 409 de concurrencia se resuelven solos con reintentos; un mensaje
+      envenenado queda en la DLQ para revisarlo, y reconcileStalledOrders recupera además los pedidos
+      que se quedaron esperando un desenlace. Vale para los eventos de payment y de catalog.
+    since: 0.1.0
+  - section: '3.6'
+    scope: http-clients.clients.payment
+    chosen: timeout 5000 ms + 3 intentos exponenciales (300 ms) ante timeout/5xx/conexión + circuit breaker 50 %/20/30 s
+    discarded: sin reintentos
+    reason: >-
+      Reintentar es seguro porque payment deduplica requestCharge por chargeRequestId y capture/cancel
+      por estado. Sin reintentos, un fallo pasajero dejaría el pedido en pendingPayment hasta el barrido.
+    since: 0.1.0
+  - section: '3.6'
+    scope: dependencies.payment.activations.chargeOrder.onFailure
+    chosen: degrade (201 con el pedido en pendingPayment)
+    discarded: fail (503 PAYMENT_UNAVAILABLE)
+    reason: >-
+      Un timeout no distingue "no llegó" de "se cobró"; responder error con el pedido ya confirmado
+      confundiría al comprador. pendingPayment es un estado distinguible: el desenlace llega por evento
+      o el barrido lo resuelve (paymentFailed notReceived a los 30 minutos si payment nunca lo registró).
+    since: 0.1.0
+  - section: '3.4'
+    scope: api.endpoints
+    chosen: solo audience users (sin superficie M2M)
+    discarded: operación M2M propia; audience both en getOrder
+    reason: Ningún otro servidor consulta ni crea pedidos hoy; si aparece un consumidor, tendrá operación propia vía /keel-evolve.
+    since: 0.1.0
+  - section: '3.8'
+    scope: use-cases.listMyOrders.output
+    chosen: offset, defaultSize 20, maxSize 100, sort createdAt desc (+ id), sortable [createdAt]
+    discarded: sin paginar; 10/50
+    reason: Es la pantalla de "mis pedidos" de un comprador; crece sin cota con el tiempo. El comprador solo necesita ver los más recientes o los más antiguos primero.
+    since: 0.1.0
+  - section: '3.2'
+    scope: use-cases.createOrder.idempotency.partitionBy
+    chosen: "[customerRef]"
+    discarded: clave global
+    reason: Cada comprador tiene su propio espacio de claves; con una clave global dos compradores chocarían y el segundo podría recibir el pedido del primero.
+    since: 0.1.0
+  - section: '3.7'
+    scope: persistence.consistency.transactionalBoundary
+    chosen: per-aggregate
+    discarded: per-operation
+    reason: >-
+      Ninguna operación escribe Order y Product a la vez (createOrder solo lee la réplica), así que no
+      hay una mitad que pueda confirmarse sola. El outbox de NotificationRequested va en la transacción
+      del pedido; las llamadas a payment ocurren siempre fuera de ella.
+    since: 0.1.0
+  - section: '3.9b'
+    scope: persistence.audit
+    chosen: timestamps declared, authorship none
+    discarded: authorship all
+    reason: >-
+      createdAt y updatedAt son contrato (salen en el pedido y ordenan el listado). La autoría no aporta:
+      el comprador ya es customerRef y la mayoría de las escrituras vienen de eventos de payment, sin usuario.
+    since: 0.1.0
+  - section: '3.4'
+    scope: security.ownership.Order.readMiss
+    chosen: not-found
+    discarded: forbidden
+    reason: >-
+      Un pedido ajeno se ve como inexistente al leerlo (no revela que el id existe). cancelOrder, al
+      ser una escritura con ownership, responde 403 ORDER_NOT_OWNED, que el DSL exige; se acepta esa asimetría.
+    since: 0.1.0
+  - section: '3.2'
+    scope: use-cases.createOrder.errors.IDEMPOTENCY_KEY_REQUIRED
+    chosen: cabecera Idempotency-Key obligatoria (400 IDEMPOTENCY_KEY_REQUIRED)
+    discarded: cabecera opcional
+    reason: Sin clave un reintento crearía otro pedido y otro cobro; el diseñador no lo acepta.
+    since: 0.1.0
+  - section: '3.2'
+    scope: use-cases.cancelOrder
+    chosen: idempotente por estado (canceling/canceled se devuelven tal cual, sin llamar a payment)
+    discarded: client-key
+    reason: >-
+      Repetir la anulación no puede anular dos veces: la transición actionRequired → canceling es
+      irrepetible y payment es además idempotente por estado. Los commands disparados por eventos se
+      protegen con metadata.eventId de la envoltura Keel más la guarda del lifecycle (o la de versión en
+      la réplica); no llevan idempotency porque no tienen puerta HTTP.
+    since: 0.1.0
+
+falsePositives:
+  - id: CHK-SCEN-NEED-NOT-EXPOSED
+    match: FL-REC-001
+    reason: >-
+      Los status y failureReason que afirma FL-REC-001 son campos propios de Order leídos con getOrder
+      (status paymentFailed, failureReason notReceived), no el dato del need chargeStatus; el barrido no
+      tiene respuesta HTTP. El detector confunde nombres de campo propios con los de la respuesta de payment.
+    since: 0.1.0
+
+decisions:
+  - id: OBL-ENTITY-UNREACHABLE
+    scope: domain
+    reason: >-
+      Product es la réplica de catalog: la crea y la actualiza upsertProduct (disparada por
+      ProductUpserted) y la borra removeProduct (ProductRetired). Mientras catalog no exista, la
+      aprovisiona un emisor de pruebas que publica esos eventos.
+    since: 0.1.0
+  - id: OBL-PERSONAL-RETENTION-UNDECIDED
+    scope: persistence.Order.retention
+    reason: >-
+      Decidido por el diseñador frente a la recomendación (anonimizar a los 5 años): el pedido se
+      conserva sin plazo con customerRef y customerEmail hasta que se fije la política legal. Ningún log
+      ni traza los lleva porque están marcados personal. Declarar la retención será una evolución minor.
+    since: 0.1.0
+  - id: CHK-MSG-PUBLISH-EXTERNAL
+    scope: messaging.publishing.events.NotificationRequested.channel
+    reason: >-
+      El acuerdo con el dueño existe: notifications declara NotificationRequested como suscripción
+      nature request en notificationRequests (INTEGRATION.md 0.3.0 §Suscripciones), abierta a cualquier
+      sistema registrado. Falta dar de alta el cliente máquina order en notifications (hueco de integración).
+    since: 0.1.0
+  - id: CHK-HTTP-RETRY-UNSAFE
+    scope: http-clients.clients.payment.calls.requestCharge
+    reason: >-
+      payment honra la idempotencia por chargeRequestId, una clave de negocio del cuerpo, permanente y
+      no por cabecera: el reintento manda el mismo cuerpo y devuelve el mismo cobro sin volver a llamar a
+      la pasarela. Está escrito en el contract de la llamada.
+    since: 0.1.0
+  - id: CHK-HTTP-RETRY-UNSAFE
+    scope: http-clients.clients.payment.calls.capturePayment
+    reason: payment es idempotente por estado en la captura (capturing/captured se devuelven tal cual); reintentar no captura dos veces.
+    since: 0.1.0
+  - id: CHK-HTTP-RETRY-UNSAFE
+    scope: http-clients.clients.payment.calls.cancelPayment
+    reason: payment es idempotente por estado en la anulación (canceling/canceled se devuelven tal cual); reintentar no anula dos veces.
+    since: 0.1.0
+  - id: CHK-MSG-RETRY-AFTER-CLAIM
+    scope: messaging.subscriptions.ProductUpserted
+    reason: >-
+      Decidido por el diseñador frente a la recomendación (guarda por clave natural): catalog es un
+      emisor emulado y se acepta que un fallo pasajero tras reclamar el mensaje pierda ese cambio hasta el
+      siguiente evento del mismo producto. Revisar cuando exista el catalog real.
+    since: 0.1.0
+  - id: CHK-MSG-RETRY-AFTER-CLAIM
+    scope: messaging.subscriptions.ProductRetired
+    reason: >-
+      Decidido por el diseñador frente a la recomendación: se acepta que un fallo pasajero tras reclamar
+      la retirada la pierda; el producto seguiría pidiéndose hasta su siguiente evento. Revisar cuando
+      exista el catalog real.
+    since: 0.1.0
+  - id: CHK-DEPS-CLOCK-NOT-OBSERVABLE
+    scope: dependencies.payment.activations.chargeOrder.awaitingSince
+    reason: Marcador operativo del barrido, no contrato del comprador; su efecto se comprueba con los escenarios del barrido. Decidido por el diseñador.
+    since: 0.1.0
+  - id: CHK-DEPS-CLOCK-NOT-OBSERVABLE
+    scope: dependencies.payment.activations.captureOrderPayment.awaitingSince
+    reason: Marcador operativo del barrido, no contrato del comprador; su efecto se comprueba con los escenarios del barrido. Decidido por el diseñador.
+    since: 0.1.0
+  - id: CHK-DEPS-CLOCK-NOT-OBSERVABLE
+    scope: dependencies.payment.activations.cancelOrderPayment.awaitingSince
+    reason: Marcador operativo del barrido, no contrato del comprador; su efecto se comprueba con los escenarios del barrido. Decidido por el diseñador.
+    since: 0.1.0

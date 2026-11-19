@@ -1,4 +1,10 @@
-# Servicios generados: cada uno es un repo git propio con su ciclo de vida.
-# El diseño (specs/) es la fuente de verdad; el código se regenera desde él.
-services/*
-!services/.gitkeep
+# Los servicios generados (services/<servicio>-<tech>/) se versionan aquí junto al diseño.
+# Cada uno trae su propio .gitignore (build/, .gradle/, .idea/…) y se aplica por carpeta.
+
+# Configuración local que genera `keel-<tech> build`: con credenciales de prueba y puertos
+# de la máquina. No se sube; se regenera con `keel-<tech> build`.
+services/*/deploy/.env
+services/*/infra/test-credentials.env
+
+# Logs sueltos
+*.log

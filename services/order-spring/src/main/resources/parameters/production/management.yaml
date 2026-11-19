@@ -1,0 +1,18 @@
+management:
+  server:
+    # Puerto del actuator, distinto del de negocio. NO se publica fuera del pod/host: solo lo
+    # alcanza el colector que viene a leer /actuator/prometheus.
+    port: ${MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info,prometheus}
+  endpoint:
+    health:
+      probes:
+        # Habilita /actuator/health/liveness y /actuator/health/readiness.
+        enabled: true
+        # Y además /livez y /readyz en el puerto PRINCIPAL: son las que consultan el HEALTHCHECK
+        # de la imagen y el orquestador, y tienen que responder aunque el actuator viva en otro.
+        add-additional-paths: true
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:never}

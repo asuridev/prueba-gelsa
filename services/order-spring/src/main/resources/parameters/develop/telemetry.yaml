@@ -1,0 +1,56 @@
+# Telemetría: trazas, métricas y logs por OTLP/HTTP a un colector OpenTelemetry.
+# Cambiar de backend es cambiar la configuración del COLECTOR, no este archivo.
+management:
+  tracing:
+    propagation:
+      produce: w3c
+      consume: w3c, b3, b3_multi
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      otlp:
+        enabled: ${TELEMETRY_EXPORT_ENABLED:true}
+  logging:
+    export:
+      otlp:
+        enabled: ${LOG_EXPORT_OTLP:false}
+  opentelemetry:
+    resource-attributes:
+      "[service.version]": "0.1.0"
+      "[deployment.environment]": ${DEPLOYMENT_ENVIRONMENT:develop}
+      "[service.instance.id]": ${SERVICE_INSTANCE_ID:${HOSTNAME:unknown}}
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/traces
+          compression: gzip
+    logging:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/logs
+          compression: gzip
+  otlp:
+    metrics:
+      export:
+        url: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}/v1/metrics
+        step: ${METRICS_EXPORT_STEP:30s}
+        histogram-flavor: ${METRICS_OTLP_HISTOGRAM_FLAVOR:base2_exponential_bucket_histogram}
+        enabled: ${METRICS_EXPORT_OTLP:false}
+  prometheus:
+    metrics:
+      export:
+        enabled: ${METRICS_EXPORT_PROMETHEUS:true}
+  metrics:
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+        "[http.client.requests]": true
+        "[keel.use-case]": true
+        "[keel.timer.tick]": true
+spring:
+  rabbitmq:
+    template:
+      observation-enabled: true
+    listener:
+      simple:
+        observation-enabled: true

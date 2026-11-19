@@ -1,0 +1,13 @@
+# Perfil test: H2 en memoria, sin contenedores.
+spring:
+  config:
+    import:
+      - "classpath:parameters/test/db.yaml"
+      - "classpath:parameters/test/timer.yaml"
+      - "classpath:parameters/test/payment.yaml"
+      - "classpath:parameters/test/messaging.yaml"
+      - "classpath:parameters/test/rabbitmq.yaml"
+      - "classpath:parameters/test/idempotency.yaml"
+      - "classpath:parameters/test/telemetry.yaml"
+      - "classpath:parameters/test/payments.yaml"
+      - "classpath:parameters/test/oauth2.yaml"

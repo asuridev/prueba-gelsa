@@ -1,0 +1,5 @@
+idempotency-record:
+  purge:
+    # Borrado de las claves ya caducadas; la ventana de deduplicación la fija
+    # el ttlSeconds del diseño, no esta cadencia.
+    cron: "${IDEMPOTENCY_PURGE_CRON:0 30 4 * * *}"

@@ -1,0 +1,19 @@
+# El enrutado de las alertas de order a un canal, para quien no use Grafana.
+# Generado por keel-spring build. Nadie monta este archivo: es una referencia.
+#
+# Las REGLAS que disparan están en prometheus-rules.example.yaml; esto es lo otro —a quién se le
+# cuenta—, que es justo la mitad que suele faltar: una regla sin receptor no avisa a nadie.
+route:
+  receiver: keel-webhook
+  group_by: [alertname, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: keel-webhook
+    webhook_configs:
+      # La URL de tu canal (o del puente que hable con él). En deploy/ el equivalente es
+      # ALERT_WEBHOOK_URL, que apunta al sumidero de alertas.
+      - url: http://alert-sink:8080/alerts
+        send_resolved: true

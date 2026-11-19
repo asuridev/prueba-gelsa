@@ -1,0 +1,44 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/payment
+    username: payment
+    password: changeme
+    # La conexión sale del pool en la primera sentencia SQL, no al abrir la transacción.
+    connection-fetch: lazy
+    hikari:
+      # Tuning del pool expuesto por ambiente; ajustar en production.
+      pool-name: payment-pool
+      maximum-pool-size: 10
+      connection-timeout: 5000
+      max-lifetime: 1800000
+  transaction:
+    # Tope de cada transacción; lo cancelado sale como 503 TRANSACTION_TIMEOUT.
+    default-timeout: 30s
+  jpa:
+    hibernate:
+      # Solo para iterar: en local Hibernate crea/altera el esquema.
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        auto_quote_keyword: true
+        # Agrupa las cargas LAZY pendientes en un WHERE ... IN (...) en vez de una
+        # consulta por elemento. Sin esto, recorrer una colección de una página de N
+        # elementos son N consultas que ninguna aserción funcional distingue.
+        default_batch_fetch_size: 100
+        query.fail_on_pagination_over_collection_fetch: true
+        query.in_clause_parameter_padding: true
+        # Cuenta las sentencias preparadas. Lo lee el arnés para acotar el coste de
+        # una lectura y cazar un N+1: es medición de prueba, no de producción.
+        generate_statistics: true
+    # El appendix de SQL corre DESPUÉS de que Hibernate cree las tablas.
+    defer-datasource-initialization: true
+  sql:
+    init:
+      # Índices condicionados que Hibernate no infiere (ver db/partial-indexes.sql).
+      mode: always
+      data-locations: "classpath:db/partial-indexes.sql"
+      continue-on-error: false
+  flyway:
+    # Apagadas mientras se itera; para probar el baseline: PROFILE=local,migrations.
+    enabled: false

@@ -1,0 +1,14 @@
+# El cronómetro del servicio (DSL 2.26): un sondeador por réplica sobre la tabla keel_timer.
+# Mecánica del generador, no contrato: el rechazo tardío lo hace el dominio en el instante exacto.
+timer:
+  max-sleep-ms: 30000
+  batch-size: 50
+  lease-ms: 120000
+  max-attempts: 10
+  retry-delay-ms: 30000
+  drain-budget-ms: 60000
+  retention-days: 7
+  purge:
+    cron: "0 30 5 * * *"
+scheduling:
+  enabled: true

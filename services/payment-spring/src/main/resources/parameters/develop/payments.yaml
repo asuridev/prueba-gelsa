@@ -1,0 +1,14 @@
+payments:
+  gateway:
+    base-url: ${STRIPE_BASE_URL:https://api.stripe.com}
+    api-key: ${STRIPE_SECRET_KEY:keel-test-api-key}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:keel-test-webhook-secret}
+    connect-timeout: ${PAYMENT_GATEWAY_CONNECT_TIMEOUT:2s}
+    read-timeout: ${PAYMENT_GATEWAY_READ_TIMEOUT:10s}
+    notice-tolerance-seconds: ${PAYMENT_NOTICE_TOLERANCE_SECONDS:300}
+  reconciliation:
+    # Lo decide el diseño (payments.reconciliation.unansweredAfterSeconds); en local y test se acorta
+    # para que los escenarios del barrido no esperen un cuarto de hora.
+    unanswered-after-seconds: ${PAYMENT_UNANSWERED_AFTER_SECONDS:900}
+    # Cuántos cobros consulta una pasada como máximo: capacidad, no diseño. Se ajusta con datos de producción.
+    batch-size: ${PAYMENT_RECONCILIATION_BATCH_SIZE:50}

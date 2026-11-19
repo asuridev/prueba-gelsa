@@ -1,0 +1,4 @@
+outbound:
+  # CIDR que ninguna llamada saliente puede alcanzar, además de los fijos (link-local, any-local,
+  # multicast y metadatos de la nube). Separados por comas; uno mal escrito impide arrancar.
+  denied-addresses: ""

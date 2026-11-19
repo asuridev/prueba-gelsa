@@ -1,0 +1,22 @@
+# Perfil production: importa sus fragmentos de parameters/production/.
+spring:
+  config:
+    import:
+      - "classpath:parameters/production/logging.yaml"
+      - "classpath:parameters/production/management.yaml"
+      - "classpath:parameters/production/telemetry.yaml"
+      - "classpath:parameters/production/db.yaml"
+      - "classpath:parameters/production/rabbitmq.yaml"
+      - "classpath:parameters/production/messaging.yaml"
+      - "classpath:parameters/production/idempotency.yaml"
+      - "classpath:parameters/production/oauth2.yaml"
+      - "classpath:parameters/production/security.yaml"
+      - "classpath:parameters/production/http-clients.yaml"
+      - "classpath:parameters/production/outbound.yaml"
+      - "classpath:parameters/production/reconciliation.yaml"
+      - "classpath:parameters/production/timer.yaml"
+      - "classpath:parameters/production/order.yaml"
+
+springdoc:
+  swagger-ui:
+    enabled: false

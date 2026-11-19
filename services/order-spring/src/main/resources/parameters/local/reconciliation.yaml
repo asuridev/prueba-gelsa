@@ -1,0 +1,34 @@
+reconciliation:
+  charge-order:
+    # Encargos a payment sin desenlace pasado este tiempo: candidatos del barrido.
+    # Lo declara el DISEÑO; aquí solo se parametriza para poder moverlo por entorno.
+    unanswered-after-seconds: 1800
+    # Caducidad del reclamo: una réplica que muere con el lote en vuelo retiene sus
+    # candidatos hasta que pasa esto. Del generador, no del diseño: cubre el lote entero
+    # (lote × timeout de la llamada con sus reintentos) y al menos dos ticks del cron.
+    claim-timeout-ms: 760000
+    # Cota del lote por pasada: sin ella, una tanda con 50.000 atascados son 50.000
+    # llamadas al proveedor de una vez. Del generador, no del diseño.
+    batch-size: 50
+  capture-order-payment:
+    # Encargos a payment sin desenlace pasado este tiempo: candidatos del barrido.
+    # Lo declara el DISEÑO; aquí solo se parametriza para poder moverlo por entorno.
+    unanswered-after-seconds: 600
+    # Caducidad del reclamo: una réplica que muere con el lote en vuelo retiene sus
+    # candidatos hasta que pasa esto. Del generador, no del diseño: cubre el lote entero
+    # (lote × timeout de la llamada con sus reintentos) y al menos dos ticks del cron.
+    claim-timeout-ms: 760000
+    # Cota del lote por pasada: sin ella, una tanda con 50.000 atascados son 50.000
+    # llamadas al proveedor de una vez. Del generador, no del diseño.
+    batch-size: 50
+  cancel-order-payment:
+    # Encargos a payment sin desenlace pasado este tiempo: candidatos del barrido.
+    # Lo declara el DISEÑO; aquí solo se parametriza para poder moverlo por entorno.
+    unanswered-after-seconds: 600
+    # Caducidad del reclamo: una réplica que muere con el lote en vuelo retiene sus
+    # candidatos hasta que pasa esto. Del generador, no del diseño: cubre el lote entero
+    # (lote × timeout de la llamada con sus reintentos) y al menos dos ticks del cron.
+    claim-timeout-ms: 760000
+    # Cota del lote por pasada: sin ella, una tanda con 50.000 atascados son 50.000
+    # llamadas al proveedor de una vez. Del generador, no del diseño.
+    batch-size: 50

@@ -1,0 +1,15 @@
+http-clients:
+  payment:
+    base-url: http://localhost:9
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          payment:
+            authorization-grant-type: client_credentials
+            client-id: test
+            client-secret: test
+        provider:
+          payment:
+            token-uri: http://localhost/token

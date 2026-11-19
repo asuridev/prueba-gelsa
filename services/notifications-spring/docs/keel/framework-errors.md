@@ -1,0 +1,168 @@
+# Errores del framework
+
+Los `code` que pone el **generador** cuando el diseño no nombra el conflicto de un mecanismo
+que él mismo encendió. Son contrato público: salen por la API, los ven los integradores y los
+escenarios pueden afirmar sobre ellos.
+
+## Por qué existe esta lista
+
+El DSL sostiene que **`errors` es el único sitio donde nace un `code` del contrato**, y las
+convenciones de los generadores le dicen al agente que nunca invente uno: si falta, es un hueco
+del diseño y se reporta.
+
+Pero hay conflictos que no se declaran operación por operación porque **no los provoca la
+lógica, los provoca el mecanismo**: dos peticiones con la misma clave de idempotencia, una
+escritura sobre una versión que ya cambió, una subida que pasa del tamaño del bucket. El diseño
+enciende el mecanismo con un campo (`idempotency`, `optimisticLocking`, `maxSizeMb`) y el
+conflicto viene con él. Alguien tiene que ponerle nombre, y hasta que existió esta tabla lo
+ponía cada generación por su cuenta: tres corridas completas del pipeline produjeron **tres
+contratos públicos distintos para el mismo hecho**, cada una reportándolo como un hueco que
+nadie sabía dónde cerrar.
+
+La regla, entonces, es más precisa que «nunca inventes un code»:
+
+- Un error de **negocio** nace en `errors`. Si falta, es un hueco del diseño.
+- Un error de **mecanismo** lo pone el framework, con el código de esta tabla. Nunca se
+  inventa otro, y nunca hace falta.
+
+## La tabla
+
+| Mecanismo (qué lo enciende) | `code` | HTTP | Sustituible |
+|---|---|---|---|
+| `use-cases`: constraints de `input` | `VALIDATION_ERROR` | 400 | no |
+| `domain`: `entities.<E>.lifecycle` | `INVALID_STATE_TRANSITION` | 409 | sí |
+| `domain`: `entities.<E>.checks` y las cotas de sus campos, rotas por un valor del servidor | `INVARIANT_VIOLATED` | 422 | sí |
+| `persistence`: `naturalKey` / campo `unique` | `<ENTITY>_<CAMPOS>_ALREADY_EXISTS` | 409 | sí |
+| `persistence`: `consistency.optimisticLocking` | `CONCURRENT_MODIFICATION` | 409 | sí |
+| `api`: `concurrency.operations` — If-Match no coincide | `PRECONDITION_FAILED` | 412 | sí |
+| `api`: `concurrency.conditionalWrites: required` — falta If-Match | `PRECONDITION_REQUIRED` | 428 | sí |
+| `use-cases`: `operations.<op>.idempotency` — la carrera | `IDEMPOTENCY_KEY_IN_PROGRESS` | 409 | sí |
+| `use-cases`: `operations.<op>.idempotency` — misma clave, otro cuerpo | `IDEMPOTENCY_KEY_REUSED` | 409 | sí |
+| `storage`: `buckets.<b>.maxSizeMb` | `FILE_TOO_LARGE` | 413 | sí |
+| `storage`: `buckets.<b>.allowedContentTypes` | `UNSUPPORTED_CONTENT_TYPE` | 415 | sí |
+| Entrada multipart (input con campo `type: file`) | `FILE_UNREADABLE` | 400 | no |
+| `security`: la cadena de autenticación | `UNAUTHENTICATED` | 401 | no |
+| `security`: `access.rules` y la audiencia de `serviceAuth` | `ACCESS_DENIED` | 403 | no |
+| El tope de duración de toda transacción (lo fija el generador) | `TRANSACTION_TIMEOUT` | 503 | no |
+| `use-cases`: `operations.<op>.batch` per-item — un elemento falla sin `code` (va en su elemento del 207) | `BATCH_ABORTED` | 500 | no |
+| `use-cases`: `operations.<op>.batch` con `execution: async` — el trabajo no existe o es de otro llamante | `BATCH_JOB_NOT_FOUND` | 404 | no |
+
+Qué significa cada uno:
+
+- **`VALIDATION_ERROR`** — la petición no cumple las cotas declaradas en el `input`. No es
+  sustituible porque no es un desenlace del dominio: es la frontera rechazando algo que ni
+  siquiera llegó a la operación.
+- **`INVALID_STATE_TRANSITION`** — se pide una transición que el `lifecycle` no declara desde el
+  estado actual.
+- **`<ENTITY>_<CAMPOS>_ALREADY_EXISTS`** — el único que **no** es un código fijo: se deriva de la
+  entidad y de los campos de la clave, porque un servicio puede tener varias y un solo código no
+  las distinguiría. `ASSET_OWNER_SLUG_ALREADY_EXISTS` es la forma.
+- **`CONCURRENT_MODIFICATION`** — dos escrituras concurrentes sobre la misma raíz; la segunda va
+  contra una versión que ya cambió. Nombra el hecho, no la técnica: que se detecte por número de
+  versión es un detalle de implementación que no tiene por qué salir al contrato.
+- **`IDEMPOTENCY_KEY_IN_PROGRESS`** — dos peticiones con la misma clave **a la vez**. La que
+  pierde no tiene todavía una respuesta que reproducir, porque la ganadora no ha commiteado; su
+  transacción revierte entera, así que de las dos se ejecutó exactamente una. No confundir con el
+  reintento normal, que **no** es un error: ese reproduce la respuesta de la primera.
+- **`IDEMPOTENCY_KEY_REUSED`** — la misma clave con un contenido **distinto**. Reproducir la
+  respuesta de la primera contestaría a una pregunta que el cliente no hizo, y ejecutar la
+  segunda rompería la promesa de la clave. La única salida honesta es rechazarla.
+- **`FILE_TOO_LARGE`** — la subida supera el `maxSizeMb` del bucket.
+- **`UNSUPPORTED_CONTENT_TYPE`** — el archivo no es de ningún tipo de `allowedContentTypes`: ni el
+  que declara la petición ni el que dice su firma. Un tipo declarado que la firma desmiente
+  también es esto, no un 400: lo que se rechaza es el contenido.
+- **`FILE_UNREADABLE`** — la parte binaria llega vacía o el cuerpo multipart está roto.
+- **`UNAUTHENTICATED`** — la petición no trae credencial o la que trae no es válida. La emite la
+  cadena de seguridad antes de que exista ninguna operación, así que no es sustituible: no hay
+  operación en la que declarar otro.
+- **`ACCESS_DENIED`** — la credencial es válida pero no autoriza la operación: rol, permiso,
+  scope o audiencia. El 403 del **alcance por recurso** no es este: ese lo decide el caso de uso
+  y sale con el `code` que declara `scoping.error`.
+- **`TRANSACTION_TIMEOUT`** — la transacción no terminó a tiempo: una consulta lenta o una
+  espera de bloqueo agotó el tope que el generador pone a todas, y el motor la canceló. Es un
+  503 y no un 500 porque es transitorio, y reintentar es seguro: la transacción revirtió entera.
+  Sin ese tope, una espera de bloqueo —infinita por defecto en varios motores— retiene su
+  conexión sin límite y el pool se agota para todas las demás peticiones. No es sustituible: no
+  lo provoca ninguna operación concreta.
+- **`INVARIANT_VIOLATED`** — una mutación deja la entidad fuera de una invariante declarada (DSL
+  2.31): un check de `checks`, o la cota de un campo (`min`, `max`, `maxLength`…) rota por un valor
+  que calculó el servidor —una cantidad que se suma a la que ya había, una copia de otro agregado—.
+  La comprueba la entidad al final de la mutación, antes de guardar, y no se escribe nada. No es
+  `VALIDATION_ERROR`: el cliente no mandó nada inválido, y la misma cota rota por la ENTRADA sigue
+  siendo 400 en el borde. Un check con `error` propio se responde con ese `code`; sin él, con este.
+- **`BATCH_ABORTED`** — un elemento de un lote `per-item` (DSL 2.30) falló por una causa que no
+  es suya —infraestructura, un defecto— y el lote se detuvo en él: lo confirmado antes se queda,
+  y los siguientes salen `notAttempted`. No es una respuesta, sino el `error` de ese elemento
+  dentro del `207` (`wire-contract.md` § Lotes); el 500 es el status que habría tenido la
+  operación sola. Un elemento que falla con un `code` propio fuera de `itemErrors` también
+  detiene el lote, pero lleva ese `code`.
+- **`BATCH_JOB_NOT_FOUND`** — las rutas del trabajo de un lote asíncrono (DSL 2.30) con un id que
+  no existe, que ya se purgó o que creó otro llamante. Los tres casos responden lo mismo: un
+  trabajo solo lo lee quien lo creó, y responder distinto a uno ajeno le diría al llamante que
+  existe (como `readMiss: not-found` en la lectura acotada).
+
+## Sustituir uno por el del dominio
+
+No hay sintaxis nueva: se declara el error en la operación, como cualquier otro, con un `code`
+de la **familia** del canónico y su mismo status.
+
+```yaml
+# use-cases.keel.yaml
+publishAsset:
+  errors:
+    - code: ASSET_VERSION_CONFLICT      # familia de concurrencia
+      when: Otra operación modificó el archivo mientras se publicaba.
+      http: 409
+```
+
+El generador lo detecta y usa **ese** código en vez del canónico. Las familias admitidas son:
+
+| Canónico | Familia (sufijos admitidos) |
+|---|---|
+| `CONCURRENT_MODIFICATION` | `CONCURRENT_MODIFICATION`, `CONCURRENT_UPDATE`, `OPTIMISTIC_LOCK_CONFLICT`, `OPTIMISTIC_LOCKING_FAILURE`, `VERSION_CONFLICT` |
+| `PRECONDITION_FAILED` | `PRECONDITION_FAILED`, `VERSION_MISMATCH`, `STALE_VERSION`, `ETAG_MISMATCH` |
+| `PRECONDITION_REQUIRED` | `PRECONDITION_REQUIRED`, `IF_MATCH_REQUIRED`, `ETAG_REQUIRED`, `VERSION_REQUIRED` |
+| `IDEMPOTENCY_KEY_IN_PROGRESS` | `KEY_IN_PROGRESS`, `IDEMPOTENCY_IN_PROGRESS`, `REQUEST_IN_PROGRESS` |
+| `IDEMPOTENCY_KEY_REUSED` | `KEY_REUSED`, `KEY_MISMATCH`, `KEY_SIGNATURE_MISMATCH`, `KEY_CONFLICT` |
+| `INVALID_STATE_TRANSITION` | `INVALID_STATE_TRANSITION`, `INVALID_STATE`, `INVALID_TRANSITION`, `ILLEGAL_STATE_TRANSITION` |
+| `INVARIANT_VIOLATED` | `INVARIANT_VIOLATED`, `INVARIANT_VIOLATION`, `INVARIANT_BROKEN` |
+| `FILE_TOO_LARGE` | `FILE_TOO_LARGE`, `PAYLOAD_TOO_LARGE`, `UPLOAD_TOO_LARGE` |
+| `UNSUPPORTED_CONTENT_TYPE` | `UNSUPPORTED_CONTENT_TYPE`, `UNSUPPORTED_MEDIA_TYPE`, `CONTENT_TYPE_NOT_ALLOWED`, `FILE_TYPE_NOT_ALLOWED` |
+| `<ENTITY>_<CAMPOS>_ALREADY_EXISTS` | cualquier `code` que acabe en `<CAMPOS>_ALREADY_EXISTS` |
+
+Con el prefijo que quieras: lo que se compara es el sufijo, así que `ASSET_VERSION_CONFLICT`
+entra en la familia de concurrencia.
+
+**Se exige exactamente un candidato.** Con cero, el diseño no lo dijo y manda el canónico; con
+dos, dijo algo ambiguo y elegir uno sería adivinar — también manda el canónico. Eso es lo que
+hace que el contrato exista siempre, diga lo que diga el diseño.
+
+**La unicidad se puede nombrar en vez de dejarla a la familia** (DSL 2.16): `naturalKeyError` en
+la entidad y `error` en un índice único de `persistence` dicen qué code significa violarla, y
+mandan sobre toda deducción. Es la salida cuando el code no sigue la forma de los campos y la
+entidad tiene más de una unicidad —ahí la familia no encuentra nada y el canónico sale con un
+TODO—; `keel validate` lo avisa con `CHK-PERSIST-UNIQUE-ERROR-UNDECLARED`. Ver
+[`dsl/persistence.md`](dsl/persistence.md).
+
+## Qué avisa `keel validate`
+
+Cuando un mecanismo con conflicto observable está encendido y ninguna operación declara su
+error, `keel validate` lo **avisa** y nombra el código canónico que se usará. No es un error: el
+canónico es una respuesta legítima. Es que el diseñador se entere de que ese contrato existe sin
+tener que leer el código generado.
+
+## Para quien escribe un generador
+
+Los códigos salen de `FRAMEWORK_ERRORS`, en la API pública de `keel-core`; no se escriben a mano
+en cada generador. `overrideFor(...)` resuelve la sustitución con la semántica de arriba.
+
+Y una obligación que va con ellos: **estos códigos son parte del contrato publicado**. Aparecen
+en el OpenAPI de las operaciones que encienden su mecanismo aunque el diseño no los declare —si
+no, el cliente no puede programar contra un error que va a recibir.
+
+## Y lo que sigue siendo un hueco de diseño
+
+Todo lo demás. Si al implementar aparece un desenlace observable que no está en esta tabla ni en
+los `errors` de la operación, **no se inventa un `code`**: se reporta como `designGap`. Esta
+lista existe para que el conjunto de excepciones sea cerrado y conocido, no para abrir la puerta
+a ampliarlo sobre la marcha.

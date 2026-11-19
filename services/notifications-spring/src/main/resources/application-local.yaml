@@ -1,0 +1,16 @@
+# Perfil local: importa sus fragmentos de parameters/local/.
+spring:
+  config:
+    import:
+      - "classpath:parameters/local/logging.yaml"
+      - "classpath:parameters/local/management.yaml"
+      - "classpath:parameters/local/telemetry.yaml"
+      - "classpath:parameters/local/db.yaml"
+      - "classpath:parameters/local/rabbitmq.yaml"
+      - "classpath:parameters/local/messaging.yaml"
+      - "classpath:parameters/local/oauth2.yaml"
+      - "classpath:parameters/local/security.yaml"
+      - "classpath:parameters/local/mail.yaml"
+      - "classpath:parameters/local/sweep.yaml"
+      - "classpath:parameters/local/timer.yaml"
+      - "classpath:parameters/local/notifications.yaml"

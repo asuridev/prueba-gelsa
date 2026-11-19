@@ -1,0 +1,30 @@
+service: notifications
+version: 0.3.0
+generator: keel-spring 0.4.0
+gaps:
+  - layer: validation-scenarios
+    kind: contradiction
+    unit: Paginación (preámbulo)
+    source: specs/validation-scenarios.md:52-53
+    scenario: FL-TPL-030
+    proposal: >-
+      El preámbulo restringe los totales a 0 a "si no hay ningún elemento", pero el contrato canónico
+      (docs/dsl/api.md § Paginación) los pone a 0 en toda página vacía o fuera de rango, haya o no
+      elementos en otras páginas. Reescribir: "Página vacía o fuera de rango: items [], totalElements 0
+      y totalPages 0, con el page y size pedidos."
+  - layer: validation-scenarios
+    kind: contradiction
+    unit: Listado de plantillas, página fuera de rango
+    source: specs/validation-scenarios.md:343
+    scenario: FL-TPL-030
+    proposal: >-
+      Then 4 (?page=5): cambiar totalElements 3 / totalPages 1 por totalElements 0 / totalPages 0,
+      manteniendo items [], page 5, size 20. Regenerar con /keel-evolve (patch).
+  - layer: validation-scenarios
+    kind: contradiction
+    unit: Listado de supresiones, página fuera de rango
+    source: specs/validation-scenarios.md:775
+    scenario: FL-SUP-003
+    proposal: >-
+      Then 3 (?page=4): cambiar totalElements 3 por totalElements 0 y añadir totalPages 0, manteniendo
+      items []. Regenerar con /keel-evolve (patch).

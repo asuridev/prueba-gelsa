@@ -1,0 +1,20 @@
+# Perfil migrations: el esquema lo gobiernan las migraciones de db/migration/
+# y Hibernate solo valida — igual que en develop/production. Se activa SOBRE otro
+# perfil (que aporta el datasource):
+#   PROFILE=local,migrations ./gradlew bootRun
+# Úsalo contra una base de datos SIN esquema para comprobar que el baseline lo
+# crea completo: si Hibernate ya lo había creado con ddl-auto: update, el validate
+# pasaría sin haber ejercitado la migración.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    # Lo que `local` pone para su apéndice de índices condicionados no vale aquí: el apéndice
+    # viaja DENTRO del baseline, y diferir la inicialización con Flyway activo es una
+    # dependencia circular entre flyway y entityManagerFactory que no deja arrancar.
+    defer-datasource-initialization: false
+  sql:
+    init:
+      mode: never
+  flyway:
+    enabled: true

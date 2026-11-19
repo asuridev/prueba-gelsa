@@ -1,0 +1,8 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Perfil test: no hay proveedor de identidad. Puerto 9 (discard) a
+          # propósito: si algo intentara resolverlo, falla en local y rápido.
+          jwk-set-uri: http://localhost:9/.well-known/jwks.json

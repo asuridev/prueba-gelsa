@@ -1,0 +1,10 @@
+{
+  "group": "com.ecomerce",
+  "database": "postgresql",
+  "broker": "rabbitmq",
+  "auth": "keycloak",
+  "cache": null,
+  "storage": null,
+  "paymentGateway": "stripe",
+  "telemetry": "otel"
+}

@@ -1,0 +1,11 @@
+logging:
+  level:
+    root: INFO
+    com.ecomerce.payment: DEBUG
+    # Silencia el volcado por sesión que activa generate_statistics (ver el fragmento
+    # db de este mismo perfil). El contador que lee el arnés lo publica Micrometer.
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: WARN
+    # Hibernate 7 copia al log el mensaje del motor, con el valor que violó una unicidad (DSL 2.28, personal).
+    org.hibernate.orm.jdbc.error: OFF
+  pattern:
+    correlation: "[%X{correlationId:-}] [%X{traceId:-},%X{spanId:-}] "

@@ -1,0 +1,76 @@
+# Infraestructura de prueba generada por keel-spring (según keel-stack.json).
+name: notifications-spring
+services:
+  db:
+    container_name: notifications-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: notifications
+      POSTGRES_USER: notifications
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - 5432:5432
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - keel-notifications
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - 5672:5672
+      - 15672:15672
+    container_name: notifications-rabbitmq
+    networks:
+      - keel-notifications
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.1
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - 8180:8080
+    networks:
+      - keel-notifications
+  mailpit:
+    image: axllent/mailpit:v1.31
+    environment:
+      MP_MAX_MESSAGES: 500
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_ENABLE_CHAOS: "true"
+      MP_SMTP_ALLOWED_RECIPIENTS: "@(?:[^@]*[.])?(?:i|in|inv|inva|inval|invali|[^i.@]\
+        [^.@]*|i[^n.@][^.@]*|in[^v.@][^.@]*|inv[^a.@][^.@]*|inva[^l.@][^.@]*|in\
+        val[^i.@][^.@]*|invali[^d.@][^.@]*|invalid[^.@]+)\\z"
+    ports:
+      - 1025:1025
+      - 8025:8025
+    container_name: notifications-mailpit
+    networks:
+      - keel-notifications
+  devtools:
+    build:
+      context: ./docker
+    image: notifications-devtools:0c508a98bd35
+    container_name: notifications-devtools
+    command: sleep infinity
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    depends_on:
+      - db
+      - rabbitmq
+      - keycloak
+      - mailpit
+    networks:
+      - keel-notifications
+volumes:
+  db-data:
+networks:
+  keel-notifications:
+    driver: bridge

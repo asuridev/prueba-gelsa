@@ -1,0 +1,91 @@
+# Colector GATEWAY (Deployment con servicio headless) — referencia de producción para order.
+# Generado por keel-spring build. NO lo despliega build: es la plantilla que adapta la plataforma.
+#
+# Es el ÚNICO sitio que conoce el backend: cambiarlo es cambiar el bloque `exporters` de este
+# archivo. Aquí se decide también qué trazas se quedan (muestreo por cola), porque el agente de
+# nodo le manda cada traza entera por traceID.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  # Defensa en profundidad: ninguna credencial sale hacia el backend.
+  attributes/redact:
+    actions:
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: http.response.header.set-cookie
+        action: delete
+      - key: http.request.header.x-api-key
+        action: delete
+  # Muestreo por COLA: se decide con la traza entera delante. Se queda con TODAS las que tienen
+  # un error y con todas las lentas, y con una parte del resto. Ajusta el umbral al SLO del
+  # servicio y el porcentaje al volumen que el backend puede pagar.
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    policies:
+      - name: errores
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: lentas
+        type: latency
+        latency:
+          threshold_ms: 1000
+      - name: resto
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+  batch:
+    send_batch_size: 2048
+    timeout: 5s
+
+exporters:
+  # El backend. Placeholder: un proveedor por OTLP con su credencial DESDE EL ENTORNO del
+  # colector, nunca en este archivo ni en la aplicación.
+  otlphttp/backend:
+    endpoint: ${env:OTEL_BACKEND_ENDPOINT}
+    headers:
+      authorization: ${env:OTEL_BACKEND_AUTH}
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 8
+      queue_size: 10000
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, tail_sampling, batch]
+      exporters: [otlphttp/backend]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/backend]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/redact, batch]
+      exporters: [otlphttp/backend]

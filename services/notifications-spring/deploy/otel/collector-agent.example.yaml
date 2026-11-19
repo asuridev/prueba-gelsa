@@ -1,0 +1,124 @@
+# Colector AGENTE (uno por nodo: DaemonSet) — referencia de producción para notifications.
+# Generado por keel-spring build. NO lo despliega build: es la plantilla que adapta la plataforma.
+#
+# Qué hace:
+#   · Recoge los LOGS del stdout de los contenedores (filelog). La consola JSON (ECS) es el canal
+#     primario de los logs del servicio; por eso LOG_EXPORT_OTLP va apagado en la app.
+#   · Recibe trazas y métricas por OTLP de los pods de su nodo (la app exporta a
+#     OTEL_EXPORTER_OTLP_ENDPOINT=http://<ip-del-nodo>:4318).
+#   · Añade los metadatos de Kubernetes (pod, deployment, namespace, nodo).
+#   · Reparte las trazas por traceID entre los gateways, para que el muestreo por cola vea cada
+#     traza entera en un solo sitio (collector-gateway.example.yaml).
+#
+# Muestreo: con el gateway haciendo muestreo por cola, sube TRACING_SAMPLING_PROBABILITY a 1.0 en
+# la app — si no, se muestrea dos veces y el gateway decide sobre una décima parte.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  filelog:
+    include: [/var/log/pods/*/*/*.log]
+    # Los logs del propio colector fuera: si no, cada línea que escribe al procesar un log vuelve
+    # a entrar como log.
+    exclude: [/var/log/pods/*/otel-*/*.log]
+    start_at: end
+    include_file_path: true
+    operators:
+      # Quita la envoltura del runtime (containerd/CRI-O/docker) y deja la línea de la app.
+      - type: container
+        id: container-parser
+      # La línea es ECS: se parsea a atributos, con su instante y su nivel.
+      - type: json_parser
+        id: ecs-parser
+        if: 'body matches "^\\{"'
+        parse_from: body
+        parse_to: attributes
+        timestamp:
+          parse_from: attributes["@timestamp"]
+          layout_type: gotime
+          layout: '2006-01-02T15:04:05.999999999Z07:00'
+        severity:
+          parse_from: attributes["log.level"]
+      # trace.id / span.id (los renombra la app desde el MDC) pasan a ser el CONTEXTO del
+      # registro: es lo que permite saltar del log a su traza en el backend.
+      - type: trace_parser
+        if: 'attributes["trace.id"] != nil'
+        trace_id:
+          parse_from: attributes["trace.id"]
+        span_id:
+          parse_from: attributes["span.id"]
+      - type: move
+        if: 'attributes["message"] != nil'
+        from: attributes["message"]
+        to: body
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  k8sattributes:
+    auth_type: serviceAccount
+    passthrough: false
+    extract:
+      metadata: [k8s.namespace.name, k8s.deployment.name, k8s.pod.name, k8s.node.name]
+    pod_association:
+      - sources:
+          - from: resource_attribute
+            name: k8s.pod.ip
+      - sources:
+          - from: connection
+  resourcedetection:
+    detectors: [env, system]
+    override: false
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  # Trazas: por traceID a los gateways (servicio headless), para el muestreo por cola.
+  loadbalancing:
+    routing_key: traceID
+    protocol:
+      otlp:
+        compression: gzip
+        tls:
+          insecure: true
+    resolver:
+      dns:
+        hostname: otel-gateway-headless.observability.svc.cluster.local
+  # Métricas y logs no necesitan afinidad: van al gateway tal cual.
+  otlp/gateway:
+    endpoint: otel-gateway.observability.svc.cluster.local:4317
+    compression: gzip
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      queue_size: 5000
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [loadbalancing]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [otlp/gateway]
+    logs:
+      receivers: [filelog]
+      processors: [memory_limiter, k8sattributes, resourcedetection, batch]
+      exporters: [otlp/gateway]

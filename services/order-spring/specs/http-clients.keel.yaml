@@ -1,0 +1,93 @@
+# Capa http-clients — integraciones HTTP salientes, descritas por contrato.
+# La razón de cada llamada (qué need o activation la justifica) vive en dependencies.
+
+clients:
+  payment:
+    purpose: Cobrar, capturar, anular y consultar los cobros de los pedidos en payment (contrato 0.1.4).
+    auth:
+      type: oauth2-client-credentials
+      tokenUrl: "${IDP_TOKEN_URL}"     # marcador: el endpoint real es configuración por entorno
+      scopes: [payment:charge, payment:read]
+    calls:
+      requestCharge:
+        contract: >-
+          Pide el cobro de un pedido. Idempotente por chargeRequestId (clave de negocio en el cuerpo,
+          permanente): repetir la misma petición devuelve el mismo cobro sin volver a llamar a la
+          pasarela, así que reintentar con el mismo cuerpo es seguro. No usa la cabecera
+          Idempotency-Key. Un rechazo de la pasarela no es un error HTTP: llega como status failed.
+        method: POST
+        path: /payments
+        request:
+          body:
+            chargeRequestId: { type: string, required: true, constraints: { maxLength: 100 } }
+            customerRef:     { type: CustomerRef, required: true }
+            amount:          { type: Amount, required: true }
+            currency:        { type: CurrencyCode, required: true }
+            paymentToken:    { type: string }
+            paymentMethodId: { type: uuid }
+        response:
+          fields:
+            id:             { type: uuid, required: true }
+            chargeRequestId: { type: string, required: true }
+            status:         { type: PaymentStatus, required: true }
+            failureReason:  { type: PaymentFailureReason }
+            customerAction: { type: json }
+        timeoutMs: 5000
+        retry: { maxAttempts: 3, backoff: exponential, initialDelayMs: 300, retryOn: [timeout, 5xx, connection] }
+        circuitBreaker: { failureRateThreshold: 50, slidingWindowSize: 20, waitDurationMs: 30000 }
+        fallback: El pedido queda en pendingPayment y la operación responde con él (onFailure degrade de la activación chargeOrder).
+
+      capturePayment:
+        contract: >-
+          Captura un cobro autorizado. Idempotente por estado en payment: en capturing, captured,
+          refunding o refunded devuelve el cobro tal cual sin volver a llamar a la pasarela.
+        method: POST
+        path: /payments/{id}/capture
+        request:
+          pathParams:
+            id: { type: uuid, required: true }
+        response:
+          fields:
+            id:     { type: uuid, required: true }
+            status: { type: PaymentStatus, required: true }
+        timeoutMs: 5000
+        retry: { maxAttempts: 3, backoff: exponential, initialDelayMs: 300, retryOn: [timeout, 5xx, connection] }
+        circuitBreaker: { failureRateThreshold: 50, slidingWindowSize: 20, waitDurationMs: 30000 }
+        fallback: El pedido sigue en authorized y el barrido reintenta la captura (onFailure degrade de captureOrderPayment).
+
+      cancelPayment:
+        contract: >-
+          Anula un cobro en authorized o actionRequired. Idempotente por estado en payment: en
+          canceling o canceled devuelve el cobro tal cual.
+        method: POST
+        path: /payments/{id}/cancel
+        request:
+          pathParams:
+            id: { type: uuid, required: true }
+        response:
+          fields:
+            id:            { type: uuid, required: true }
+            status:        { type: PaymentStatus, required: true }
+            failureReason: { type: PaymentFailureReason }
+        timeoutMs: 5000
+        retry: { maxAttempts: 3, backoff: exponential, initialDelayMs: 300, retryOn: [timeout, 5xx, connection] }
+        circuitBreaker: { failureRateThreshold: 50, slidingWindowSize: 20, waitDurationMs: 30000 }
+        fallback: El pedido queda en canceling y el barrido reintenta la anulación (onFailure degrade de cancelOrderPayment).
+
+      getPaymentByChargeRequest:
+        contract: Devuelve el cobro registrado con un chargeRequestId; 404 PAYMENT_NOT_FOUND si payment nunca lo registró.
+        method: GET
+        path: /payments/by-charge-request/{chargeRequestId}
+        request:
+          pathParams:
+            chargeRequestId: { type: string, required: true }
+        response:
+          fields:
+            id:             { type: uuid, required: true }
+            status:         { type: PaymentStatus, required: true }
+            failureReason:  { type: PaymentFailureReason }
+            customerAction: { type: json }
+        timeoutMs: 5000
+        retry: { maxAttempts: 3, backoff: exponential, initialDelayMs: 300, retryOn: [timeout, 5xx, connection] }
+        circuitBreaker: { failureRateThreshold: 50, slidingWindowSize: 20, waitDurationMs: 30000 }
+        fallback: El pedido sigue esperando y se consulta en el siguiente ciclo (onUnavailable degrade de chargeStatus).

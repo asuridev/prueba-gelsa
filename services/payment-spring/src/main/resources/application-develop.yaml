@@ -1,0 +1,17 @@
+# Perfil develop: importa sus fragmentos de parameters/develop/.
+spring:
+  config:
+    import:
+      - "classpath:parameters/develop/logging.yaml"
+      - "classpath:parameters/develop/management.yaml"
+      - "classpath:parameters/develop/telemetry.yaml"
+      - "classpath:parameters/develop/db.yaml"
+      - "classpath:parameters/develop/rabbitmq.yaml"
+      - "classpath:parameters/develop/messaging.yaml"
+      - "classpath:parameters/develop/idempotency.yaml"
+      - "classpath:parameters/develop/oauth2.yaml"
+      - "classpath:parameters/develop/security.yaml"
+      - "classpath:parameters/develop/payments.yaml"
+      - "classpath:parameters/develop/outbound.yaml"
+      - "classpath:parameters/develop/timer.yaml"
+      - "classpath:parameters/develop/payment.yaml"

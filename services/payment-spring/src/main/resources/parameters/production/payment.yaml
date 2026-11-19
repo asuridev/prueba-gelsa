@@ -1,0 +1,3 @@
+payment:
+  # Horas que un cobro puede esperar la autenticación del cliente (3DS) antes de que el barrido lo anule.
+  action-required-timeout-hours: ${PAYMENT_ACTION_REQUIRED_TIMEOUT_HOURS:1}

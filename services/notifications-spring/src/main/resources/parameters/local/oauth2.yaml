@@ -1,0 +1,7 @@
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Keycloak de prueba del docker-compose; crea el realm y ajusta el nombre.
+          issuer-uri: http://localhost:8180/realms/notifications

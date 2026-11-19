@@ -1,0 +1,255 @@
+# Alertas de notifications, provisionadas en el Grafana de deploy/.
+# Generado por keel-spring build.
+#
+# Trae también el CONTACTO y la política que enruta a él: sin las dos cosas, una alerta se ve en
+# la interfaz y no sale a ninguna parte. La URL viene de la variable ALERT_WEBHOOK_URL, que
+# en deploy/ apunta al sumidero de alertas y en un entorno de verdad apunta a tu canal.
+#
+# OJO, y es una consecuencia, no un detalle: provisionar 'policies' SUSTITUYE el árbol de
+# notificación por defecto de esta organización de Grafana, y el árbol provisionado deja de ser
+# editable desde la interfaz. En el Grafana de deploy/ eso da igual; si llevas este archivo a un
+# Grafana compartido, mira antes qué árbol tiene.
+#
+# El equivalente portable de estas mismas reglas, para quien no use Grafana, está en
+# prometheus-rules.example.yaml, y su receptor en alertmanager.example.yaml.
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: notifications
+    folder: "Keel notifications"
+    interval: 1m
+    rules:
+      - uid: keel-notifications-outbox
+        title: "Eventos del outbox rendidos"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max_over_time(keel_outbox_dead_lettered[5m])"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hay eventos que agotaron sus reintentos y NO salieron. Es pérdida de datos en el mecanismo cuya única promesa es que no se pierde nada."
+      - uid: keel-notifications-errors
+        title: "Tasa de error de los casos de uso"
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "sum(rate(keel_use_case_seconds_count{keel_outcome=\"error\"}[5m])) / clamp_min(sum(rate(keel_use_case_seconds_count[5m])), 0.001)"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0.05
+        labels:
+          severity: warning
+        annotations:
+          summary: "Más del 5 % de los casos de uso está fallando. Cuenta solo `error`: un rechazo del dominio (`rejected`) es un desenlace esperado."
+      - uid: keel-notifications-latency
+        title: "p95 de los casos de uso"
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "histogram_quantile(0.95, sum by (le, keel_operation) (rate(keel_use_case_seconds_bucket[5m])))"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 1
+        labels:
+          severity: warning
+        annotations:
+          summary: "Alguna operación pasa de un segundo en el p95. Degradación antes de que alguien se queje."
+      - uid: keel-notifications-pool
+        title: "Saturación del pool de conexiones"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max_over_time(hikaricp_connections_pending[5m])"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hay peticiones ESPERANDO una conexión del pool (Hikari). A partir de aquí la latencia la pone la cola, no el trabajo: sube el tamaño del pool o busca lo que retiene conexiones."
+      - uid: keel-notifications-heap
+        title: "Presión de memoria en el heap"
+        condition: C
+        for: 10m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "sum(jvm_memory_used_bytes{area=\"heap\"}) / clamp_min(sum(jvm_memory_max_bytes{area=\"heap\"}), 1)"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0.9
+        labels:
+          severity: warning
+        annotations:
+          summary: "El heap lleva diez minutos por encima del 90 %. Lo que viene después es GC continuo y, al final, un OutOfMemoryError — que sí se ve, pero cuando ya no hay nada que hacer."
+      - uid: keel-notifications-timer-lag
+        title: "Retraso del cronómetro"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "min_over_time(max(keel_timer_lag_seconds)[5m:1m])"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 60
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hay temporizadores vencidos que nadie reclama desde hace más de un minuto: plazos que no caducan a su hora y barridos o purgas que no corren. Mira si hay réplicas sondeando (scheduling.enabled) y si un tick no cabe en su periodo."
+      - uid: keel-notifications-timer-parked
+        title: "Temporizadores aparcados"
+        condition: C
+        for: 5m
+        noDataState: OK
+        execErrState: Error
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: "max_over_time(max(keel_timer_parked)[5m:1m])"
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator:
+                    type: gt
+                    params:
+                      - 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Hay plazos que agotaron sus intentos y quedaron APARCADOS: la transición que el diseño promete por el paso del tiempo no va a ocurrir. Su handler falla siempre; los logs del cronómetro dicen cuál y por qué."
+contactPoints:
+  - orgId: 1
+    name: keel-webhook
+    receivers:
+      - uid: keel-notifications-webhook
+        type: webhook
+        settings:
+          url: "$__env{ALERT_WEBHOOK_URL}"
+policies:
+  - orgId: 1
+    receiver: keel-webhook
+    group_by:
+      - alertname
+      - severity
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

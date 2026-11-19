@@ -1,0 +1,31 @@
+# Capa security — autenticación y autorización. Protocolo, nunca el producto.
+
+authentication:
+  protocol: oidc
+  tokenLocation: header
+  callerIdentity:
+    field: customerRef             # el comprador es el sub de su token
+    from: { source: claim, name: sub }
+
+access:
+  default: { level: required }     # cualquier usuario autenticado es comprador
+  rules:
+    createOrder:  { level: required }
+    getOrder:     { level: required }
+    listMyOrders: { level: required }
+    cancelOrder:  { level: required }
+
+ownership:
+  Order:
+    owner: customerRef
+    error: ORDER_NOT_OWNED
+    operations: [cancelOrder]
+    reads: [getOrder, listMyOrders]
+    readMiss: not-found            # un pedido ajeno se ve como inexistente al leerlo
+
+cors:
+  description: Consumido directamente desde el navegador por la SPA de la tienda.
+  allowCredentials: false
+  allowedHeaders: [Authorization, Content-Type, Idempotency-Key]
+  exposedHeaders: [Location, X-Correlation-Id]
+  maxAgeSeconds: 3600

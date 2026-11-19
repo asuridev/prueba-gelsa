@@ -1,0 +1,6 @@
+security:
+  # Audiencia que debe traer el claim aud de los tokens de clientes máquina.
+  audience: ${SECURITY_AUDIENCE}
+  cors:
+    # Orígenes del navegador (CSV); obligatorio (sin él la app no arranca).
+    allowed-origins: ${SECURITY_CORS_ALLOWED_ORIGINS}

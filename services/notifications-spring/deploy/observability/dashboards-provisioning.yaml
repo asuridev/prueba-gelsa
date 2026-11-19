@@ -1,0 +1,13 @@
+# Provisioning de paneles de Grafana (backend de prueba de deploy/).
+# Generado por keel-spring build. La ruta es la de DENTRO del contenedor y tiene que coincidir con
+# el montaje del compose: viven las dos en src/lib/stack-catalog.js por eso mismo.
+apiVersion: 1
+
+providers:
+  - name: keel
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    options:
+      path: /otel-lgtm/grafana/conf/provisioning/dashboards/custom
+      foldersFromFilesStructure: false

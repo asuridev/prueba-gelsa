@@ -1,0 +1,446 @@
+{
+  "realm": "notifications",
+  "enabled": true,
+  "accessTokenLifespan": 1800,
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false}],\"unmanagedAttributePolicy\":\"ENABLED\"}"
+          ]
+        }
+      }
+    ]
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "notifications-admin"
+      },
+      {
+        "name": "notifications-auditor"
+      },
+      {
+        "name": "notifications-operator"
+      },
+      {
+        "name": "template-editor"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "notifications-admin",
+      "enabled": true,
+      "email": "notifications-admin@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-admin"
+      ]
+    },
+    {
+      "username": "notifications-auditor",
+      "enabled": true,
+      "email": "notifications-auditor@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-auditor"
+      ]
+    },
+    {
+      "username": "notifications-operator",
+      "enabled": true,
+      "email": "notifications-operator@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-operator"
+      ]
+    },
+    {
+      "username": "template-editor",
+      "enabled": true,
+      "email": "template-editor@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "template-editor"
+      ]
+    },
+    {
+      "username": "notifications-admin-2",
+      "enabled": true,
+      "email": "notifications-admin-2@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-admin"
+      ]
+    },
+    {
+      "username": "notifications-auditor-2",
+      "enabled": true,
+      "email": "notifications-auditor-2@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-auditor"
+      ]
+    },
+    {
+      "username": "notifications-operator-2",
+      "enabled": true,
+      "email": "notifications-operator-2@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "notifications-operator"
+      ]
+    },
+    {
+      "username": "template-editor-2",
+      "enabled": true,
+      "email": "template-editor-2@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "template-editor"
+      ]
+    },
+    {
+      "username": "no-role",
+      "enabled": true,
+      "email": "no-role@example.com",
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "password",
+          "temporary": false
+        }
+      ],
+      "realmRoles": []
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "basic",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "realm roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "profile",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "introspection.token.claim": "true",
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "aud-notifications",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "aud-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "notifications",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "aud-wrong",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "aud-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "audiencia-ajena",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bounce:report",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true"
+      }
+    },
+    {
+      "name": "notification:read",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true"
+      }
+    },
+    {
+      "name": "notification:send",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true"
+      }
+    }
+  ],
+  "defaultDefaultClientScopes": [
+    "basic",
+    "roles",
+    "profile"
+  ],
+  "clients": [
+    {
+      "clientId": "notifications-spring-test",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile"
+      ]
+    },
+    {
+      "clientId": "billing",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "billing-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications",
+        "notification:send",
+        "notification:read"
+      ]
+    },
+    {
+      "clientId": "shipping",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "shipping-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications",
+        "notification:send",
+        "notification:read"
+      ]
+    },
+    {
+      "clientId": "dispatch-only",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "dispatch-only-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications",
+        "notification:send"
+      ]
+    },
+    {
+      "clientId": "mail-provider",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "mail-provider-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications",
+        "bounce:report"
+      ]
+    },
+    {
+      "clientId": "test-m2m-ok",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "test-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications",
+        "bounce:report",
+        "notification:read",
+        "notification:send"
+      ]
+    },
+    {
+      "clientId": "test-m2m-no-scope",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "test-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-notifications"
+      ]
+    },
+    {
+      "clientId": "test-m2m-bad-aud",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "test-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile",
+        "aud-wrong",
+        "bounce:report",
+        "notification:read",
+        "notification:send"
+      ]
+    },
+    {
+      "clientId": "test-m2m-none",
+      "enabled": true,
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "secret": "test-secret",
+      "defaultClientScopes": [
+        "basic",
+        "roles",
+        "profile"
+      ]
+    }
+  ]
+}

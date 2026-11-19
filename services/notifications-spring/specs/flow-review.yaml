@@ -1,0 +1,56 @@
+# Careo de flujos de notifications (agente keel-flow-review, contexto limpio).
+# Pasada 1 de la v0.3.0, completa: todos los FL-* careados contra el diseño de esta versión
+# (DSL 2.32: output.sortable, EMPTY_RENDERED_SUBJECT, recorte de notes por rebote, checks,
+# marcas personal, filter en requestedFrom/requestedTo, sendingTimeoutMinutes con min 2).
+# Pasada 2 de la v0.3.0, completa (FL-BNC-001 se cerró en el YAML): todos los FL-* careados de
+# nuevo contra el diseño actual. Sin hallazgos nuevos. Los tres de la pasada 1 (FL-TPL-010 →
+# scenario, FL-BNC-001 → design, FL-NTF-040 → scenario) salen del archivo al ser pasada completa;
+# su corrección se comprobó en esta pasada: FL-TPL-010 afirma ?sort en el Then 5 con solo las versiones 1 y 2,
+# reportEmailBounce fija notes = id + espacio + diagnostic recortado, y FL-NTF-040 solo afirma lo
+# observable (el «en lote» está en «Lo que no tiene escenario»).
+reviewedAt: 0.3.0
+passes: 2
+scenariosSha256: a0f9094cbb62b57f809fca39099712e9b40dc0f1c4d6a252d765efbb31477752
+conventionsSha256: 64e9f70a989672c51483528771875184df874e561e5947a16808682a570fefed
+flows:
+  - { id: FL-SND-001, sha256: 4381a74f2c0e880f35bfc7a93b382fe587e322006805682b8a84364a6ecb3472 }
+  - { id: FL-SND-002, sha256: 57fd4ba58e38fbf7c76c235d68ed33ed7c5a38634e2956381a6eb559bd853f1d }
+  - { id: FL-SND-003, sha256: 9263d054ce7f188075fa74088664034b370166463cc6edc3005c816dc1bbe696 }
+  - { id: FL-TPL-001, sha256: 3323aee525507dd6c87a8b1172785debdd849d58d368f9c784456ebc04707958 }
+  - { id: FL-TPL-010, sha256: 36bf43c4b11a8b8c0dc0938372010f2608231ec4f29cbad2ee0dba24417f6c8b }
+  - { id: FL-TPL-011, sha256: 8f5a1469f8052fa6f1869a1679cbca0096a788ce9e6dcd8153590c6025403a9a }
+  - { id: FL-TPL-020, sha256: 8ce8eec4206cd2e3e52499690dfe47fd559a769fea8e6118ef2edb5b304f08a3 }
+  - { id: FL-TPL-030, sha256: 4ec5f37ce60aa8b97e693b551b8e3dc82f1e1d0f6ca4031443ff9b321c513c56 }
+  - { id: FL-NTF-001, sha256: 6e2e4c7bdce837d9beb7afb4478b11032656d456c3356ba2f8635bebed282cd8 }
+  - { id: FL-NTF-002, sha256: 307c09b53dd7f355b80bef81c387cfc9ea8407dbd85b7353ca32602b1caf9d55 }
+  - { id: FL-NTF-003, sha256: 2a796dec7d06ac01b186e25814ff474f3f6f1c13e43bcd7b6c00636afb28092e }
+  - { id: FL-NTF-010, sha256: 32d402f17c17ab484b0f539e45b740d30d9a06da4d4a3a0acaec97c9b5b95b12 }
+  - { id: FL-NTF-020, sha256: 7fe523ff4fd4dd4facf4c5a4823a806410e794452c0ebf1f535b76164a26a27e }
+  - { id: FL-NTF-030, sha256: 41b74af47ec550737d699c7acbfeb243158c496d81e78c554d0949f6f27b743b }
+  - { id: FL-NTF-040, sha256: bea5c01569ff169bb601c66281150457314a18f90f6567477c24244d687a619f }
+  - { id: FL-EVT-001, sha256: 3d0e448532bf0bc48614a6c5057c75e2dd8495d76533408098aaddd20a04fa7d }
+  - { id: FL-EVT-002, sha256: 533a988bed09f33d73ba989f3fec3dd7e5357e817a531bfa3166df1a5e16289f }
+  - { id: FL-EVT-003, sha256: ad83eb9eae9652ce6d763945a33d2ea25ffbeceeeeffec79c52e220ddd6f2ef8 }
+  - { id: FL-DSP-001, sha256: a03a719e872b5554fdfaf30b16f4731af9a19fc650ccf4c54fc2e6652312460f }
+  - { id: FL-DSP-010, sha256: c94fbd22b3103105b5ba5e6e3dd7cea83e9eac1657a33843e48f49e8faea7dc1 }
+  - { id: FL-DSP-020, sha256: b51234498cee5d5c03dc0496c65f19f9f27baad5f02e1f86fa8f195aebf9dca3 }
+  - { id: FL-DSP-021, sha256: d791edc945eee3014d0306e9ff30520e8b0e461edf81f491e4d45dd1cba77d13 }
+  - { id: FL-DSP-022, sha256: 1a3a85920d6231469d0163f49e1a249ca5385678d36b3d83c5b4c9a60a389e04 }
+  - { id: FL-DSP-030, sha256: 82e226a8b03f6d93d32983b229d7066168d5e25f5496e36b67ff9e58f4ac2fb5 }
+  - { id: FL-DSP-040, sha256: 92ac9e5bb08e0684d12a782615c6cfee41676ce646343ae022484c882a58b590 }
+  - { id: FL-RSC-001, sha256: 94468e18fb0d1e3d4fb141787fc2b7b8b30dda38b07cc7486cba33becba4eb63 }
+  - { id: FL-RSC-002, sha256: 491abc9d1f8a632d70c46c7d85d70d86a3488f75f6feea1f7530b07c21ddb6bb }
+  - { id: FL-OBX-001, sha256: ae4135caa2ef83800339a1fa60fc5cccd2289ec0e81bd40a0823b243bda2dd4d }
+  - { id: FL-OBX-002, sha256: 7ed2f1e8506ae5bd3a2b0224b0634798b7404b682c7e394ea65e94cccd97044e }
+  - { id: FL-BNC-001, sha256: 738d89bb15518c92f66f087db7cb058865f9467f7df22f0b1a73c7ac9728a12a }
+  - { id: FL-BNC-002, sha256: 7799281a7ad89575d45c4f2c0fc2fd27d82b06f104c5c105e03622c121c69980 }
+  - { id: FL-SUP-001, sha256: 6710dc8bfac35c82490ebf012acbfb964e9bfc12ce2379715de2e64bfbec3b87 }
+  - { id: FL-SUP-002, sha256: 7241c4360ea0ad644c26ae3939f0aa45edbd413f983831c62a598af938a63f10 }
+  - { id: FL-SUP-003, sha256: 8df0c2367e58145c7448edd1ee874f5add79b9d077ccdf242d62f71a06799758 }
+  - { id: FL-MSG-001, sha256: 15fc946f372279433ccd4d98908e7d5dec500c75f7295f3286d6924c8fd4080c }
+  - { id: FL-MSG-002, sha256: 70c2117d96602ed0b4a860b0cdc7966485e0177bcc2d5847645d717c565150df }
+  - { id: FL-PRG-001, sha256: 295982d2dbd2db10effed58e3d483afcb4ef21ee8dfbd0764b50f18a81bfcd5c }
+  - { id: FL-SEC-001, sha256: 5d81f368604cf158e438a6f0d8b6238f92fdb68360f30d5d46d4279f1532ccf9 }
+  - { id: FL-SEC-002, sha256: cfe9b45a767e6a2361d479836de17ac19edbd353fbba040cd925529e93366015 }
+  - { id: FL-SEC-003, sha256: 1bc93b8fee9c58def046f778ad41df666d8e153391affbab26f9bbea2dd45fe1 }
+findings: []

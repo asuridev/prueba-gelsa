@@ -1,0 +1,7 @@
+order:
+  # Horas que un pedido puede seguir en actionRequired antes de que el barrido pregunte a payment por su cobro. Va por encima del plazo del 3DS de payment (24 h) para darle tiempo a publicar el desenlace.
+  action-required-timeout-hours: 1
+  # Minutos que un pedido puede seguir en pendingPayment antes de que el barrido pregunte a payment si registró su cobro; si no lo registró, el pedido pasa a paymentFailed (notReceived).
+  payment-pending-timeout-minutes: 1
+  # Minutos que un pedido puede seguir en authorized sin captura confirmada, o en canceling sin anulación confirmada, antes de que el barrido vuelva a pedir esa acción a payment.
+  payment-action-retry-minutes: 1

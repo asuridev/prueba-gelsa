@@ -1,0 +1,20 @@
+logging:
+  level:
+    root: ${LOG_LEVEL_ROOT:WARN}
+    com.ecomerce.payment: ${LOG_LEVEL_APP:INFO}
+    # Hibernate 7 copia al log el mensaje del motor, con el valor que violó una unicidad (DSL 2.28, personal).
+    org.hibernate.orm.jdbc.error: OFF
+  pattern:
+    correlation: "[%X{correlationId:-}] [%X{traceId:-},%X{spanId:-}] "
+  structured:
+    format:
+      console: ${LOG_FORMAT:ecs}
+    ecs:
+      service:
+        version: "0.1.4"
+        environment: ${DEPLOYMENT_ENVIRONMENT:production}
+        node-name: ${SERVICE_INSTANCE_ID:${HOSTNAME:unknown}}
+    json:
+      rename:
+        traceId: trace.id
+        spanId: span.id

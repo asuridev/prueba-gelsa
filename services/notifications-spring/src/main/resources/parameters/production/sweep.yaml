@@ -1,0 +1,6 @@
+sweep:
+  dispatch-queued-messages:
+    # Cota del lote por pasada: sin ella, una tanda con 50.000 filas atrasadas se procesa
+    # entera de una vez. Del generador, no del diseño: es capacidad, y se ajusta con datos
+    # de producción delante. Misma familia que outbox.relay.batch-size.
+    batch-size: ${SWEEP_DISPATCH_QUEUED_MESSAGES_BATCH_SIZE:100}

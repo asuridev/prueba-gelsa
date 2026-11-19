@@ -1,0 +1,33 @@
+messaging:
+  publishing:
+    destination: payment.events
+    routing-keys:
+      payment-authorized: payment.payment-authorized
+      payment-action-required: payment.payment-action-required
+      payment-captured: payment.payment-captured
+      payment-failed: payment.payment-failed
+      payment-canceled: payment.payment-canceled
+      payment-refunded: payment.payment-refunded
+      payment-action-rejected: payment.payment-action-rejected
+outbox:
+  relay:
+    # Sondeo de RESPALDO: al relay lo despierta el commit que escribe en el outbox,
+    # en su réplica; esto solo recoge lo que dejó una réplica caída (DSL 2.26).
+    poll-ms: 1000
+    batch-size: 100
+    # Tras agotar los reintentos, la fila queda como dead-letter (no se
+    # reintenta más ni se borra); se reporta a ERROR para inspección.
+    max-attempts: 40
+    # Backoff exponencial entre reintentos de una misma fila (initial·2^(n-1),
+    # con tope max-ms): evita el hot-looping si el broker está caído.
+    backoff:
+      initial-ms: 1000
+      max-ms: 2000
+    # Lease de una fila reclamada mientras su publicación está en vuelo: si la
+    # réplica muere, caduca y otra pasada la recoge. Debe superar con holgura la
+    # latencia peor del broker; por debajo, dos réplicas entregan lo mismo.
+    claim-timeout-ms: 60000
+  purge:
+    # Borrado diario de lo ya publicado; la tabla no es un histórico.
+    cron: "0 0 3 * * *"
+    retention-days: 7

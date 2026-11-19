@@ -1,0 +1,53 @@
+# Manifiesto del servicio — punto de entrada del diseño.
+# Declara la identidad del servicio y qué capas de diseño existen.
+# Regla: una capa opcional existe si y solo si está declarada aquí (y su archivo existe).
+keel: "2.32"
+
+service:
+  name: order
+  version: 0.1.0
+  # keel validate trata cualquier description que empiece por "TODO" como placeholder pendiente.
+  description: >-
+    Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide
+    el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications.
+  domain: commerce
+  # basedOn: billing@1.2.0         # linaje: diseño@versión del que se derivó (lo escribe `keel new --from`)
+
+conventions:
+  nulls: include # un campo sin valor viaja como null, en respuestas y en eventos (igual que payment)
+
+parameters:
+  actionRequiredTimeoutHours:
+    type: int
+    description: >-
+      Horas que un pedido puede seguir en actionRequired antes de que el barrido pregunte a payment por
+      su cobro. Va por encima del plazo del 3DS de payment (24 h) para darle tiempo a publicar el desenlace.
+    constraints: { min: 1 }
+    default: 25
+    testValue: 1
+  paymentPendingTimeoutMinutes:
+    type: int
+    description: >-
+      Minutos que un pedido puede seguir en pendingPayment antes de que el barrido pregunte a payment
+      si registró su cobro; si no lo registró, el pedido pasa a paymentFailed (notReceived).
+    constraints: { min: 1 }
+    default: 30
+    testValue: 1
+  paymentActionRetryMinutes:
+    type: int
+    description: >-
+      Minutos que un pedido puede seguir en authorized sin captura confirmada, o en canceling sin
+      anulación confirmada, antes de que el barrido vuelva a pedir esa acción a payment.
+    constraints: { min: 1 }
+    default: 10
+    testValue: 1
+
+layers:
+  domain: domain.keel.yaml         # obligatoria
+  use-cases: use-cases.keel.yaml   # obligatoria
+  dependencies: dependencies.keel.yaml
+  messaging: messaging.keel.yaml
+  http-clients: http-clients.keel.yaml
+  persistence: persistence.keel.yaml
+  api: api.keel.yaml
+  security: security.keel.yaml

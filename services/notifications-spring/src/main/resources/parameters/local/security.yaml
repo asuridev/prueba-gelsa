@@ -1,0 +1,6 @@
+security:
+  # Audiencia que debe traer el claim aud de los tokens de clientes máquina.
+  audience: notifications
+  cors:
+    # Orígenes del navegador (CSV); estos son los puertos de dev habituales de una SPA.
+    allowed-origins: http://localhost:3000,http://localhost:5173

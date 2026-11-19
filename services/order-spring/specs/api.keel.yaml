@@ -1,0 +1,18 @@
+# Capa api — exposición REST de las operaciones del comprador.
+# La seguridad de estos endpoints se declara en security.keel.yaml, no aquí.
+
+style: rest
+basePath: /api/v1
+auto: false
+defaultAudience: users
+
+endpoints:
+  createOrder:  { method: POST, path: /orders, successStatus: 201 }
+  getOrder:     { method: GET,  path: "/orders/{id}" }
+  listMyOrders: { method: GET,  path: /orders }
+  cancelOrder:  { method: POST, path: "/orders/{id}/cancel", successStatus: 200 }
+
+pagination:
+  style: offset
+  defaultSize: 20
+  maxSize: 100

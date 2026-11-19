@@ -1,0 +1,3 @@
+security:
+  # Audiencia que debe traer el claim aud de los tokens de clientes máquina.
+  audience: ${SECURITY_AUDIENCE:payment}

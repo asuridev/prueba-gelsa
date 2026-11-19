@@ -1,0 +1,24 @@
+spring:
+  rabbitmq:
+    host: ${RABBITMQ_HOST}
+    port: ${RABBITMQ_PORT}
+    username: ${RABBITMQ_USERNAME}
+    password: ${RABBITMQ_PASSWORD}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false
+        # onFailure.retry de NotificationRequested. Reintento EN MEMORIA: reinvoca el
+        # listener dentro de la misma entrega; agotado, se rechaza sin reencolar (-> DLQ).
+        retry:
+          enabled: true
+          max-retries: 2
+          initial-interval: 1000ms
+          multiplier: 1.5
+          max-interval: 30000ms
+rabbitmq:
+  listener:
+    recovery-interval-ms: ${RABBITMQ_LISTENER_RECOVERY_INTERVAL_MS:5000}

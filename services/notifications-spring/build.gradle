@@ -1,0 +1,92 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.2'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.ecomerce'
+version = '0.3.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-aspectj'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.hibernate.orm:hibernate-micrometer'
+    runtimeOnly 'org.postgresql:postgresql'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
+    testRuntimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-security-oauth2-resource-server'
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
+    implementation 'com.github.jknack:handlebars:4.4.0'
+    implementation 'io.micrometer:context-propagation:1.2.1'
+    implementation 'org.springframework.boot:spring-boot-starter-opentelemetry'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    implementation 'io.opentelemetry:opentelemetry-extension-trace-propagators'
+    implementation 'io.micrometer:micrometer-registry-otlp'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0:2.28.0-alpha'
+    testImplementation 'org.springframework.boot:spring-boot-starter-opentelemetry-test'
+    implementation 'net.ttddyy.observation:datasource-micrometer-spring-boot:2.3.0'
+    testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    testImplementation 'org.springframework.boot:spring-boot-restclient'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+sourceSets {
+    integrationTest {
+        // Solo runtimeClasspath: las IT son caja negra (hablan HTTP, no importan
+        // DTOs ni entidades), así que compilan sin src/main/java. Es lo que permite
+        // que el agente de pruebas trabaje en paralelo con el de código y cierre su
+        // gate de compilación sin depender de un main a medio escribir. main hace
+        // falta al ejecutar, no al compilar.
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+// Escenarios FL-* de specs/validation-scenarios.md contra la infra real de infra/.
+// Fuera de `check` a propósito: sin infraestructura levantada no tiene sentido,
+// y `./gradlew build -x test` debe seguir siendo el gate de compilación.
+tasks.register('integrationTest', Test) {
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter tasks.named('test')
+    jvmArgs '-Djdk.httpclient.allowRestrictedHeaders=origin'
+    // El formato por defecto de Gradle imprime una sola línea por fallo —"IllegalStateException
+    // at Clase.java:45"— y tira el mensaje de la excepción. Aquí ese mensaje ES el diagnóstico:
+    // el arnés lo compone con el código de salida y la salida completa del comando que falló,
+    // y sin él un fallo de `@BeforeAll` cuesta un ciclo entero de investigación.
+    testLogging {
+        events 'failed'
+        exceptionFormat = 'full'
+        showStackTraces = true
+        showCauses = true
+    }
+}

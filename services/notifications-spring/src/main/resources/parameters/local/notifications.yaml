@@ -1,0 +1,5 @@
+notifications:
+  # Minutos que un mensaje puede pasar en sending antes de que el rescate lo dé por fallido sin reenviarlo. Mínimo 2, para que el tope de 1 minuto de un intento contra el relay quede siempre por debajo.
+  sending-timeout-minutes: 15
+  # Meses de calendario tras requestedAt a partir de los que se purgan los datos personales de un mensaje terminal.
+  personal-data-retention-months: 0

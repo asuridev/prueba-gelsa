@@ -1,0 +1,98 @@
+# Capa dependencies — de qué otros servidores depende order y de cuál de las dos maneras:
+# needs (datos que lee) y activations (trabajo que encarga). Referencia, nunca redeclara.
+
+dependencies:
+  catalog:
+    description: >-
+      Fuente de verdad de los productos vendibles y sus precios. Todavía no existe: mientras tanto un
+      emisor de pruebas publica sus eventos con el contrato que propone order (modo degradado, sin
+      INTEGRATION.md).
+    needs:
+      productPricing:
+        description: Precio, moneda, sku y nombre de cada producto pedido, para calcular el importe y congelarlo en la línea.
+        usedBy: [createOrder]
+        strategy: replicated
+        replica:
+          entity: Product
+          keyField: id
+          fedBy: [ProductUpserted, ProductRetired]
+          freshness: >-
+            Se cobra el precio que tenía la copia al crear el pedido, que es también el que se congela
+            en la línea. Un cambio de precio en catalog tarda unos segundos en llegar y durante ese
+            margen se cobra el anterior; el diseñador lo acepta.
+          onMiss:
+            action: fail
+            error: PRODUCT_NOT_AVAILABLE
+
+  payment:
+    description: Cobra con tarjeta los pedidos. Le encargamos cobrar, capturar y anular, y le leemos el estado de un cobro en duda.
+    contract:
+      version: "0.1.4"
+      source: docs/payment/INTEGRATION.md
+    needs:
+      chargeStatus:
+        description: Estado actual de un cobro por su chargeRequestId, para resolver un pedido que lleva demasiado tiempo en pendingPayment.
+        usedBy: [reconcileStalledOrders]
+        strategy: on-demand
+        fetchedFrom: { client: payment, call: getPaymentByChargeRequest }
+        onUnavailable:
+          action: degrade
+          degradedTo: El pedido sigue en pendingPayment sin cambios y se vuelve a consultar en el siguiente ciclo del barrido.
+    activations:
+      chargeOrder:
+        description: El cobro del pedido es trabajo de payment.
+        triggeredBy: [createOrder]
+        via: { client: payment, call: requestCharge }
+        effect: >-
+          payment registra un cobro con nuestra clave chargeRequestId y pide a la pasarela autorizar el
+          importe del pedido; responde con el cobro en authorized, actionRequired, failed o pending, y
+          publica después el desenlace como evento.
+        awaits: acknowledgement
+        onFailure:
+          action: degrade
+          degradedTo: >-
+            El pedido queda en pendingPayment y createOrder responde 201 con él; el comprador ve que el
+            pago está pendiente. El desenlace llega por evento o lo resuelve reconcileStalledOrders.
+        reconciledBy: reconcileStalledOrders
+        unansweredAfterSeconds: 1800
+        awaitingSince: chargeOrderAwaitingSince
+      captureOrderPayment:
+        description: Capturar el cobro autorizado es trabajo de payment; order lo pide en cuanto sabe que está autorizado.
+        triggeredBy: [applyPaymentAuthorized, reconcileStalledOrders]
+        via: { client: payment, call: capturePayment }
+        effect: payment captura en la pasarela el importe autorizado entero y publica PaymentCaptured (o PaymentCanceled si la autorización caducó, o PaymentActionRejected si la pasarela rechaza la captura).
+        awaits: acknowledgement
+        onFailure:
+          action: degrade
+          degradedTo: El pedido sigue en authorized y reconcileStalledOrders vuelve a pedir la captura pasado paymentActionRetryMinutes.
+        reconciledBy: reconcileStalledOrders
+        unansweredAfterSeconds: 600
+        awaitingSince: captureOrderPaymentAwaitingSince
+      cancelOrderPayment:
+        description: Anular el cobro de un pedido que el comprador abandona en el 3DS es trabajo de payment.
+        triggeredBy: [cancelOrder, reconcileStalledOrders]
+        via: { client: payment, call: cancelPayment }
+        effect: payment anula el cobro en la pasarela y responde canceled, canceling o failed; publica PaymentCanceled, PaymentFailed o PaymentActionRejected si la pasarela rechaza la anulación.
+        awaits: acknowledgement
+        onFailure:
+          action: degrade
+          degradedTo: El pedido queda en canceling, cancelOrder responde 200 con él y reconcileStalledOrders vuelve a pedir la anulación.
+        reconciledBy: reconcileStalledOrders
+        unansweredAfterSeconds: 600
+        awaitingSince: cancelOrderPaymentAwaitingSince
+
+  notifications:
+    description: Envía el correo transaccional. No le leemos nada; le pedimos que avise al comprador del desenlace de su pedido.
+    contract:
+      version: "0.3.0"
+      source: docs/notifications/INTEGRATION.md
+    activations:
+      notifyOrderOutcome:
+        description: El correo al comprador con el resultado del cobro es trabajo de notifications.
+        triggeredBy: [createOrder, cancelOrder, applyPaymentCaptured, applyPaymentFailed, applyPaymentCanceled, reconcileStalledOrders]
+        via: { publishes: NotificationRequested }
+        effect: >-
+          notifications acepta la petición como un mensaje en cola y envía el correo de la plantilla
+          indicada al comprador; la idempotencyKey derivada del pedido y del desenlace garantiza que el
+          mismo aviso no sale dos veces.
+        awaits: nothing

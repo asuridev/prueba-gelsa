@@ -1,0 +1,130 @@
+# Colector OpenTelemetry de order (pruebas manuales en deploy/).
+# Generado por keel-spring build.
+#
+# El servicio exporta TODO aquí por OTLP y no sabe a qué backend va a parar: esa decisión vive
+# SOLO en este archivo. Cambiar de backend es cambiar el bloque `exporters` (y la lista de cada
+# pipeline) y reiniciar el colector; la aplicación no se toca. Ejemplos al final.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+  # Las MÉTRICAS no llegan: se van a buscar. El motivo es único y son los EXEMPLARS —el enlace de
+  # un punto de una métrica a una traza de ejemplo—, que viajan pegados a los cubos del histograma
+  # en el formato de exposición de Prometheus y que el registro OTLP de Micrometer no sabe emitir
+  # con la versión que gestiona Boot 3.5. Quien no pueda scrapear vuelve al push con
+  # METRICS_EXPORT_OTLP=true en la aplicación y quita este receptor del pipeline.
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: order
+          scrape_interval: 15s
+          metrics_path: /actuator/prometheus
+          static_configs:
+            - targets: ['app:8080']
+
+processors:
+  # Un scrape NO trae los atributos de recurso que sí trae OTLP: las series llegarían sin
+  # service.name y el panel no podría filtrar por servicio. Va antes de resourcedetection y con
+  # upsert para que el valor sea el mismo venga la métrica por donde venga.
+  resource/scrape:
+    attributes:
+      - key: service.name
+        value: order
+        action: upsert
+      - key: deployment.environment
+        value: develop
+        action: upsert
+  # Primero en cada pipeline: con el backend atascado el colector rechaza en vez de caerse por
+  # memoria, y el SDK de la aplicación reintenta.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  # Completa el recurso con lo que declare el entorno (OTEL_RESOURCE_ATTRIBUTES) sin pisar lo
+  # que ya trae la aplicación (service.name, service.version, deployment.environment).
+  resourcedetection:
+    detectors: [env]
+    override: false
+  # Defensa en profundidad: ninguna credencial sale del colector aunque una instrumentación la
+  # capture como atributo.
+  attributes/redact:
+    actions:
+      - key: http.request.header.authorization
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+      - key: http.response.header.set-cookie
+        action: delete
+      - key: http.request.header.x-api-key
+        action: delete
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  # Backend de PRUEBA: Grafana LGTM (Tempo + Loki + Mimir), en el contenedor 'lgtm'.
+  otlphttp/backend:
+    endpoint: http://lgtm:4318
+    compression: gzip
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 5000
+  # Un resumen por lote en los logs del colector: lo primero que se mira cuando «no llega nada».
+  debug:
+    verbosity: basic
+  # Lo que SALIÓ del colector, en crudo y en disco (deploy/otel/out/). Es el segundo paso del
+  # diagnóstico de «no llega nada»: si aquí hay datos, el problema está entre el colector y el
+  # backend; si no los hay, está antes. Rota solo, y se borra con el resto de deploy/.
+  file/traces:
+    path: /var/otel-out/traces.json
+  file/metrics:
+    path: /var/otel-out/metrics.json
+  file/logs:
+    path: /var/otel-out/logs.json
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, attributes/redact, batch]
+      exporters: [otlphttp/backend, debug, file/traces]
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource/scrape, resourcedetection, attributes/redact, batch]
+      exporters: [otlphttp/backend, debug, file/metrics]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resourcedetection, attributes/redact, batch]
+      exporters: [otlphttp/backend, debug, file/logs]
+
+# ── Otros backends ──────────────────────────────────────────────────────────────────────────
+# Se cambia el exportador y su referencia en los pipelines; nada más. Por ejemplo:
+#
+#   Jaeger o Tempo (trazas por OTLP):
+#     otlp/jaeger:
+#       endpoint: jaeger:4317
+#       tls: { insecure: true }
+#
+#   Prometheus (métricas por remote-write):
+#     prometheusremotewrite:
+#       endpoint: http://prometheus:9090/api/v1/write
+#
+#   Un proveedor SaaS por OTLP (la clave, desde el entorno del colector, nunca en este archivo):
+#     otlphttp/vendor:
+#       endpoint: https://otlp.example.com
+#       headers: { api-key: ${env:VENDOR_API_KEY} }

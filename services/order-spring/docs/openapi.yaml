@@ -1,0 +1,713 @@
+openapi: 3.1.0
+info:
+  title: order
+  version: 0.1.0
+  description: Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications.
+  x-keel-derived: "Derivado del diseño por el generador (keel-core/gen/openapi.js). No se edita: se regenera con build."
+servers:
+  - url: "{baseUrl}"
+    description: El host y el puerto son parámetro de despliegue, nunca dato de diseño.
+    variables:
+      baseUrl:
+        default: http://localhost:8080
+        description: Raíz del servicio desplegado.
+paths:
+  /api/v1/orders:
+    post:
+      operationId: createOrder
+      summary: Crea un pedido con las líneas pedidas, calcula su importe con la copia local del catálogo y pide su cobro a payment, respondiendo con el pedido en el estado que alcanzó.
+      tags:
+        - Order
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+          description: "Clave de idempotencia: repetir la petición con la misma clave no la ejecuta dos veces."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Crea un pedido con las líneas pedidas, calcula su importe con la copia local del catálogo y pide su cobro a payment, respondiendo con el pedido en el estado que alcanzó.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateOrderResponseDto"
+          headers:
+            Location:
+              description: "URL del recurso: /api/v1/orders/{id}"
+              schema:
+                type: string
+        "400":
+          description: |-
+            `VALIDATION_ERROR`: la entrada no cumple el contrato.
+            `IDEMPOTENCY_KEY_REQUIRED`: Falta la cabecera Idempotency-Key.
+            `PAYMENT_SOURCE_INVALID`: No se indica ninguna fuente de pago o se indican las dos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`UNAUTHENTICATED`: sin credencial, o la credencial no valida."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCESS_DENIED`: la credencial no tiene el permiso de esta operación."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: |-
+            `IDEMPOTENCY_KEY_IN_PROGRESS`: otra petición con la misma clave está en curso.
+            `IDEMPOTENCY_KEY_REUSED`: la misma clave con otro contenido.
+            `IDEMPOTENCY_KEY_IN_PROGRESS`: Otra petición del mismo comprador con la misma clave se está procesando a la vez.
+            `IDEMPOTENCY_KEY_REUSED`: El comprador ya usó esa clave con un contenido distinto.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |-
+            `INVARIANT_VIOLATED`: una invariante de la entidad (un check o la cota de un campo) se rompería con un valor que calculó el servidor; no se escribe nada.
+            `CUSTOMER_EMAIL_REQUIRED`: El token del comprador no trae el claim email o su valor no es una dirección válida.
+            `DUPLICATE_ORDER_LINE`: Dos líneas piden el mismo productId.
+            `PRODUCT_NOT_AVAILABLE`: Algún productId no está en la copia local del catálogo o está retirado.
+            `CURRENCY_MISMATCH`: Los productos pedidos no comparten moneda.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - bearerAuth: []
+    get:
+      operationId: listMyOrders
+      summary: Lista los pedidos del comprador que lo pide, del más reciente al más antiguo.
+      tags:
+        - Order
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderStatus"
+          description: Filtro opcional por estado.
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: sort
+          in: query
+          required: false
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum:
+                - createdAt
+                - createdAt,asc
+                - createdAt,desc
+          description: "`campo` o `campo,asc|desc`, repetido para ordenar por varios; sustituye al orden del diseño, y cualquier otro valor es 400."
+      responses:
+        "200":
+          description: |-
+            Lista los pedidos del comprador que lo pide, del más reciente al más antiguo.
+
+            Solo las filas del alcance del llamante (security.ownership.Order.reads): el total y las páginas cuentan solo esas.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PagedListMyOrdersResponseDto"
+        "400":
+          description: "`VALIDATION_ERROR`: la entrada no cumple el contrato."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`UNAUTHENTICATED`: sin credencial, o la credencial no valida."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCESS_DENIED`: la credencial no tiene el permiso de esta operación."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - bearerAuth: []
+  /api/v1/orders/{id}:
+    get:
+      operationId: getOrder
+      summary: Devuelve un pedido del comprador que lo pide, con sus líneas y el estado de su cobro.
+      tags:
+        - Order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Devuelve un pedido del comprador que lo pide, con sus líneas y el estado de su cobro.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetOrderResponseDto"
+        "400":
+          description: "`VALIDATION_ERROR`: la entrada no cumple el contrato."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`UNAUTHENTICATED`: sin credencial, o la credencial no valida."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: "`ACCESS_DENIED`: la credencial no tiene el permiso de esta operación."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`ORDER_NOT_FOUND`: No existe un pedido con ese id del comprador que pregunta. También una fila que existe y está fuera del alcance del llamante (security.ownership.Order.readMiss: not-found): la respuesta no revela cuál de las dos."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - bearerAuth: []
+  /api/v1/orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Anula un pedido que espera la autenticación del comprador (3DS) pidiendo a payment que anule su cobro; el pedido queda en canceling hasta que payment confirma el desenlace.
+      tags:
+        - Order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Anula un pedido que espera la autenticación del comprador (3DS) pidiendo a payment que anule su cobro; el pedido queda en canceling hasta que payment confirma el desenlace.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelOrderResponseDto"
+        "400":
+          description: "`VALIDATION_ERROR`: la entrada no cumple el contrato."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: "`UNAUTHENTICATED`: sin credencial, o la credencial no valida."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: |-
+            `ACCESS_DENIED`: la credencial no tiene el permiso de esta operación.
+            `ORDER_NOT_OWNED`: El pedido existe pero es de otro comprador.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: "`ORDER_NOT_FOUND`: No existe un pedido con ese id."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: |-
+            `ORDER_NOT_CANCELABLE`: El pedido no está en actionRequired (ni ya en canceling o canceled).
+            `ORDER_PAYMENT_ADVANCED`: Payment ya no admite anular el cobro porque avanzó (por ejemplo el 3DS se completó a la vez); el pedido vuelve a actionRequired hasta que llegue el desenlace.
+            `CONCURRENT_MODIFICATION`: Otra escritura cambió el pedido a la vez.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: |-
+            `INVARIANT_VIOLATED`: una invariante de la entidad (un check o la cota de un campo) se rompería con un valor que calculó el servidor; no se escribe nada.
+            `ORDER_CANCEL_REJECTED`: La pasarela rechazó la anulación; el pedido sigue esperando el 3DS y se puede volver a intentar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+      security:
+        - bearerAuth: []
+components:
+  schemas:
+    CancelOrderResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id del pedido; es también el chargeRequestId del cobro en payment.
+        customerRef:
+          type: string
+          description: Comprador titular del pedido (sub de su token).
+          x-personal: true
+        customerEmail:
+          type: string
+          description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token.
+          x-personal: true
+        status:
+          anyOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        currency:
+          type: string
+          description: Moneda del pedido; la comparten todos sus productos.
+        totalAmount:
+          type:
+            - number
+            - "null"
+          description: Importe a cobrar; suma de precio unitario por cantidad de cada línea.
+          readOnly: true
+        lineCount:
+          type:
+            - integer
+            - "null"
+          format: int32
+          readOnly: true
+        paymentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Id del cobro en payment; vacío mientras payment no lo ha registrado.
+        customerAction:
+          description: Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela; solo en actionRequired.
+        failureReason:
+          anyOf:
+            - $ref: "#/components/schemas/PaymentFailureReason"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        updatedAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLineDto"
+      required:
+        - id
+        - customerRef
+        - customerEmail
+        - status
+        - currency
+        - totalAmount
+        - lineCount
+        - paymentId
+        - customerAction
+        - failureReason
+        - createdAt
+        - updatedAt
+        - lines
+      additionalProperties: false
+    CreateOrderRequest:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLineRequest"
+          minItems: 1
+          maxItems: 50
+        paymentToken:
+          type: string
+          description: Token de un solo uso del componente de la pasarela (comprador presente).
+          minLength: 1
+          maxLength: 255
+        paymentMethodId:
+          type: string
+          format: uuid
+          description: Medio de pago guardado del comprador en payment.
+      required:
+        - lines
+    CreateOrderResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id del pedido; es también el chargeRequestId del cobro en payment.
+        customerRef:
+          type: string
+          description: Comprador titular del pedido (sub de su token).
+          x-personal: true
+        customerEmail:
+          type: string
+          description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token.
+          x-personal: true
+        status:
+          anyOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        currency:
+          type: string
+          description: Moneda del pedido; la comparten todos sus productos.
+        totalAmount:
+          type:
+            - number
+            - "null"
+          description: Importe a cobrar; suma de precio unitario por cantidad de cada línea.
+          readOnly: true
+        lineCount:
+          type:
+            - integer
+            - "null"
+          format: int32
+          readOnly: true
+        paymentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Id del cobro en payment; vacío mientras payment no lo ha registrado.
+        customerAction:
+          description: Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela; solo en actionRequired.
+        failureReason:
+          anyOf:
+            - $ref: "#/components/schemas/PaymentFailureReason"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        updatedAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLineDto"
+      required:
+        - id
+        - customerRef
+        - customerEmail
+        - status
+        - currency
+        - totalAmount
+        - lineCount
+        - paymentId
+        - customerAction
+        - failureReason
+        - createdAt
+        - updatedAt
+        - lines
+      additionalProperties: false
+    ErrorResponse:
+      type: object
+      description: "El cuerpo de error del contrato del cable: lleva siempre todos sus campos."
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+        code:
+          type:
+            - string
+            - "null"
+        message:
+          type: string
+        details:
+          type:
+            - array
+            - "null"
+          items:
+            type: string
+        correlationId:
+          type:
+            - string
+            - "null"
+      required:
+        - timestamp
+        - status
+        - error
+        - code
+        - message
+        - details
+        - correlationId
+    GetOrderResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id del pedido; es también el chargeRequestId del cobro en payment.
+        customerRef:
+          type: string
+          description: Comprador titular del pedido (sub de su token).
+          x-personal: true
+        customerEmail:
+          type: string
+          description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token.
+          x-personal: true
+        status:
+          anyOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        currency:
+          type: string
+          description: Moneda del pedido; la comparten todos sus productos.
+        totalAmount:
+          type:
+            - number
+            - "null"
+          description: Importe a cobrar; suma de precio unitario por cantidad de cada línea.
+          readOnly: true
+        lineCount:
+          type:
+            - integer
+            - "null"
+          format: int32
+          readOnly: true
+        paymentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Id del cobro en payment; vacío mientras payment no lo ha registrado.
+        customerAction:
+          description: Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela; solo en actionRequired.
+        failureReason:
+          anyOf:
+            - $ref: "#/components/schemas/PaymentFailureReason"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        updatedAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLineDto"
+      required:
+        - id
+        - customerRef
+        - customerEmail
+        - status
+        - currency
+        - totalAmount
+        - lineCount
+        - paymentId
+        - customerAction
+        - failureReason
+        - createdAt
+        - updatedAt
+        - lines
+      additionalProperties: false
+    ListMyOrdersResponseDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id del pedido; es también el chargeRequestId del cobro en payment.
+        customerRef:
+          type: string
+          description: Comprador titular del pedido (sub de su token).
+          x-personal: true
+        customerEmail:
+          type: string
+          description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token.
+          x-personal: true
+        status:
+          anyOf:
+            - $ref: "#/components/schemas/OrderStatus"
+            - type: "null"
+        currency:
+          type: string
+          description: Moneda del pedido; la comparten todos sus productos.
+        totalAmount:
+          type:
+            - number
+            - "null"
+          description: Importe a cobrar; suma de precio unitario por cantidad de cada línea.
+          readOnly: true
+        lineCount:
+          type:
+            - integer
+            - "null"
+          format: int32
+          readOnly: true
+        paymentId:
+          type:
+            - string
+            - "null"
+          format: uuid
+          description: Id del cobro en payment; vacío mientras payment no lo ha registrado.
+        customerAction:
+          description: Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela; solo en actionRequired.
+        failureReason:
+          anyOf:
+            - $ref: "#/components/schemas/PaymentFailureReason"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        updatedAt:
+          type: string
+          format: date-time
+          description: ISO-8601 en UTC con tres decimales y sufijo Z.
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderLineDto"
+      required:
+        - id
+        - customerRef
+        - customerEmail
+        - status
+        - currency
+        - totalAmount
+        - lineCount
+        - paymentId
+        - customerAction
+        - failureReason
+        - createdAt
+        - updatedAt
+        - lines
+      additionalProperties: false
+    OrderLineDto:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        productId:
+          type: string
+          format: uuid
+          description: Id del producto en catalog (referencia por valor a la réplica).
+        sku:
+          type: string
+          description: SKU del producto al crear el pedido.
+        productName:
+          type: string
+          description: Nombre del producto al crear el pedido.
+        unitPrice:
+          type: number
+          description: Precio unitario congelado al crear el pedido.
+        quantity:
+          type: integer
+          format: int32
+      required:
+        - id
+        - productId
+        - sku
+        - productName
+        - unitPrice
+        - quantity
+      additionalProperties: false
+    OrderLineRequest:
+      type: object
+      properties:
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+      required:
+        - productId
+        - quantity
+    OrderStatus:
+      type: string
+      enum:
+        - pendingPayment
+        - actionRequired
+        - authorized
+        - paid
+        - canceling
+        - canceled
+        - paymentFailed
+      description: Estado del pedido, que sigue el desenlace de su cobro en payment.
+    PagedListMyOrdersResponseDto:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ListMyOrdersResponseDto"
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+      required:
+        - items
+        - page
+        - size
+        - totalElements
+        - totalPages
+      additionalProperties: false
+    PaymentFailureReason:
+      type: string
+      enum:
+        - declined
+        - insufficientFunds
+        - expiredCard
+        - authenticationFailed
+        - fraudSuspected
+        - invalidPaymentMethod
+        - notReceived
+        - processingError
+      description: Motivo de fallo del cobro, con el vocabulario neutro que publica payment.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

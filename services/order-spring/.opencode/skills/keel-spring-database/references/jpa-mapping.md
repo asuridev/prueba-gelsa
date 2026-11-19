@@ -1,0 +1,187 @@
+# Mapeo JPA estructural — extender el baseline de build
+
+Build deja un baseline **correcto para el caso común** (escalares, enums, `@Id`,
+`@Column` con nullable/unique/length/precision, `@Table` con índices y clave
+natural, auditoría createdAt/updatedAt, value object de un nivel aplanado a
+columnas con prefijo, colecciones de valores sin identidad —`list`— como tablas
+de elementos con su `@Embeddable`, composición interna de agregado con
+`@JoinColumn`, referencia por id entre agregados). Esta referencia cubre lo que build **no**
+resuelve y que el diseño puede exigir: aquí **ajustas/extiendes** el código
+generado, sin reescribir el patrón puerto + adaptador ni el mapeo `toDomain`/`toJpa`.
+
+Regla de oro: build nunca deja código que no compila. Donde no puede decidir,
+deja un `// TODO (agente): …`. Tu trabajo es (1) resolver esos TODO y (2) aplicar
+lo de abajo cuando `specs/persistence.keel.yaml` + `domain.keel.yaml` lo pidan.
+Antes de tocar tipos de columna del dialecto, lee `references/dialects/<database>.md`.
+
+## 1. Relaciones
+
+### Qué dejó build
+- **Relación interna al agregado** (misma raíz): `@OneToMany(cascade = ALL,
+  orphanRemoval = true)` **con `@JoinColumn(name = "<owner>_id")`** (unidireccional
+  con FK en la tabla hija, sin join table) para to-many; `@ManyToOne`/`@OneToOne`
+  con `@JoinColumn(name = "<relation>_id")` para to-one.
+- **Relación hacia otro agregado** `many-to-one`/`one-to-one`: **columna `UUID
+  <relation>Id`**, sin asociación navegable (respeta la frontera de agregado de
+  `constitution.md`).
+
+### Cuándo intervienes
+- **Bidireccionalidad**: si necesitas navegar la relación en ambos sentidos,
+  añade el lado inverso y marca el dueño con `mappedBy`. Regla: el dueño es quien
+  tiene la FK; el lado `mappedBy` **no** lleva `@JoinColumn`. Un solo `@JoinColumn`
+  por relación (no lo dupliques en ambos lados: doble gestión de FK).
+- **Fetch**: mantén `LAZY` (default de to-many; fuérzalo en `@ManyToOne`/`@OneToOne`
+  con `fetch = FetchType.LAZY` si la asociación no se usa siempre). Las dos lecturas de UN
+  agregado —`findById` y el finder de clave natural— **ya salen con `@EntityGraph`** sobre
+  las colecciones hijas: no lo repitas ni lo quites. Con `open-in-view: false`, el fetch que
+  falte en OTRA consulta se resuelve en el **repositorio** con
+  `JOIN FETCH` o `@EntityGraph`, nunca abriendo la vista ni poniendo EAGER a ciegas
+  (ver `references/configuration.md`, sección N+1). No pongas EAGER para "arreglar"
+  una `LazyInitializationException`. Esto vale para relaciones **dentro** de un
+  agregado, que son las únicas navegables; para traer datos de **otra raíz** no hay
+  asociación que hacer fetch — eso se resuelve por lote o con un join proyectado,
+  ver `references/read-queries.md` y `docs/keel/conventions/read-composition.md`.
+- **Relación to-many entre agregados** (`one-to-many`/`many-to-many` hacia otra
+  raíz): build **no la genera** (emite un warning). Modélala tú **sin** violar la
+  frontera de agregado:
+  - Preferente: colección de ids (`@ElementCollection` de `UUID`, o una tabla
+    puente propia mapeada como entidad JPA con su repositorio) — el otro agregado
+    se referencia por id, no por asociación navegable profunda.
+  - Evita `@ManyToMany` directo entre dos raíces con cascade: acopla ciclos de
+    vida de agregados distintos. Si el negocio lo exige, tabla puente explícita.
+
+## 2. Value objects
+
+### Qué dejó build
+- VO compuesto de **un nivel escalar** (campo suelto) → columnas aplanadas con
+  prefijo (`<field>_<sub>`), reconstruido en `toDomain`/`toJpa`. El VO de dominio
+  es un `record` puro en `domain/valueobject`.
+- **Colección de VOs de un nivel** (`type: <VO>, list: true`) → completa:
+  `@ElementCollection List<<VO>Jpa>` con `@CollectionTable(name = "<entidad>_<campo>")`,
+  el `@Embeddable <VO>Jpa` (espejo de columnas) y el mapeo bidireccional en el
+  adaptador. **No intervienes** salvo que el VO tenga un VO anidado dentro.
+- **Colección de escalares/enums** (`type: string|uuid|<Enum>, list: true`) →
+  completa: tabla de elementos con `@Column` (o `@Enumerated` para enum). No intervienes.
+
+### Cuándo intervienes
+- **VO anidado** (VO dentro de VO), suelto o dentro de una colección: build deja
+  un `// TODO (agente)` en la `XxxJpa` (y en el `<VO>Jpa` embeddable) y en el
+  adaptador. Resuélvelo con `@Embeddable` en el VO interno + `@Embedded`
+  (o `@Embedded @AttributeOverrides` para renombrar columnas).
+- **Promover el aplanado a `@Embeddable`**: puedes convertir el aplanado de build
+  en un `@Embeddable` reutilizable si varias entidades comparten el mismo VO. Es
+  opcional; el aplanado por columnas ya es válido para el caso de un nivel.
+- Mantén el VO de **dominio** como record puro (sin JPA): la anotación JPA vive en
+  el espejo `XxxJpa` o en una clase `@Embeddable` de infraestructura, no en el dominio.
+
+## 3. Tipos no triviales
+
+- **`json`**: build lo deja como `String`. Para columna nativa usa
+  `@JdbcTypeCode(SqlTypes.JSON)` (Hibernate 6) sobre el campo; el tipo físico
+  (`jsonb` en PostgreSQL, `json`/`nvarchar` en otros) lo indica
+  `references/dialects/<database>.md`.
+- **Conversión de tipos**: para tipos de dominio sin mapeo directo, un
+  `AttributeConverter<Dominio, ColumnaJdbc>` con `@Convert` (más limpio que anotar
+  cada columna). Útil para value types escalares con formato propio.
+- **Ids generados por la BD**: build asigna el `UUID` en la app (`UUID.randomUUID()`).
+  Si el diseño pide id numérico secuencial, usa `@GeneratedValue` con la estrategia
+  del dialecto (`SEQUENCE` donde exista; `IDENTITY` en MySQL/MariaDB — recuerda que
+  IDENTITY desactiva el batching, ver `configuration.md`).
+- **Texto/binario grande**: `@Lob` (o el `columnDefinition` del dialecto) más allá
+  del `text` que build ya cubre con `columnDefinition = "text"`.
+
+### La unicidad de una columna de texto ya la resuelve `build` — no la toques
+
+Esto es lo contrario de la sección de abajo, y conviene no confundirlas: allí el diseño **pide**
+ignorar mayúsculas; aquí no ha pedido nada y el motor decide por su cuenta.
+
+La collation por defecto de MySQL y MariaDB (`utf8mb4_0900_ai_ci`) y la de servidor de SQL Server
+(`SQL_Latin1_General_CP1_CI_AS`) **pliegan la caja**: un índice único rechaza `acme-1` como
+duplicado de `ACME-1`. PostgreSQL y Oracle no. O sea que el mismo diseño produciría dos garantías
+distintas según el motor, y en silencio — nada falla, nada se registra, y la fila que el diseño
+consideraba nueva no entra.
+
+**`build` ya lo cierra**: toda columna de texto que participa en una constraint única sale con su
+collation sensible dentro del `columnDefinition`, con la cota del diseño incluida. Si te encuentras
+una `@Column` así, **no es una rareza que haya que limpiar** — quitarla cambia la garantía.
+
+Y al revés: **no la escribas tú**. Si crees que falta, es un defecto del generador y va al
+`INFORME-GENERACION.md`; añadirla a mano deja el proyecto distinto de lo que `build` regenera.
+
+Ojo con `columnDefinition`: **sustituye al tipo entero**, así que lleva dentro el `varchar(N)` con
+la cota del diseño. Nunca lo acompañes de un `length = N` — serían dos fuentes para el mismo dato y
+la que gana es la del `columnDefinition`.
+
+### Búsqueda que ignora mayúsculas y acentos
+
+Cuando el diseño declara `compare: ignore-case` o `ignore-case-accents` —en el campo de la entidad
+o solo en el filtro de una query (`listProducts.name`)—, **la columna sombra ya existe**: build emite
+`<campo>Normalized` en la `XxxJpa` y la estampa en el adaptador con `TextFold` al guardar. Lo tuyo es
+la consulta, y tiene una sola forma:
+
+```java
+// el término se pliega con la MISMA función que estampó la sombra
+Page<ProductJpa> findByNameNormalizedContaining(String nameNormalized, Pageable pageable);
+
+productJpaRepository.findByNameNormalizedContaining(TextFold.foldCaseAndAccents(term), pageable);
+```
+
+**No** uses la colación del motor, `unaccent`, `lower()` ni `translate()` en la consulta, ni
+escribas otra columna normalizada: cualquiera de ellas es una función de plegado distinta de
+`TextFold`, y el mismo diseño servido por keel-nest pliega con `TextFold` —con dos funciones, el
+mismo listado devuelve filas distintas en los dos servidores, y deja de casar en silencio con el
+primer carácter en que difieran (corridas de catalog, 2026-10-10 y 2026-10-11).
+
+Si el campo declara `compare`, la sombra lleva además su unicidad y el orden por defecto del
+listado (`conventions/mapping.md` § Ordenar por un campo con columna normalizada). Si solo lo
+declara el filtro, no: el campo sigue comparándose exacto para todo lo demás.
+
+## 4. Auditoría y locking
+
+- **Auditoría (`persistence.audit`): entera de build, nada tuyo.** La política del
+  diseño decide dónde vive cada columna y build la aplica: con `all`, en
+  `AuditableEntity`; con `declared`, sobre los campos que el dominio ya declara,
+  anotados en la `XxxJpa` + `@EntityListeners` en la clase; con `none`, ni columnas
+  ni `@EnableJpaAuditing`. **No añadas columnas de auditoría que el diseño no pidió**:
+  acabarían en el baseline de migraciones sin que nadie las haya decidido.
+- **El actor de la autoría** lo resuelve `AuditorAwareConfig`
+  (`infrastructure/configurations/audit/`), que build genera siempre que
+  `audit.authorship` no sea `none`: lee el principal del `SecurityContext` —con JWT, el
+  `sub` de la credencial, no `getName()`, que es el `preferred_username` mutable— y, en las
+  escrituras sin petición detrás (relay del outbox, listeners, `@Scheduled`), devuelve
+  el centinela `system`/`system:<correlationId>` en vez de vacío — por eso las columnas
+  pueden ser `NOT NULL`. Spring Data autodetecta el bean; `auditorAwareRef` no hace
+  falta. **No escribas un segundo `AuditorAware`**: dos beans del mismo tipo rompen el
+  arranque.
+- **Locking optimista (`lockVersion`)**: **ya lo genera build** en la raíz de agregado
+  (`isAggregateRoot`): campo `@Version @Column(name = "lock_version") private Long lockVersion`
+  en la `XxxJpa`, `lockVersion` en el constructor de rehidratación del dominio +
+  `getLockVersion()`, propagación en el mapeo, y el handler que traduce
+  `ObjectOptimisticLockingFailureException` a 409 `OPTIMISTIC_LOCK_CONFLICT`.
+  **No lo reañadas.** Es infraestructura pura: lo incrementa Hibernate en cada flush,
+  no aparece en ningún DTO ni payload de evento, y nadie lo asigna a mano.
+  Tu único trabajo aquí es el caso borde: si el diseño exige detectar updates
+  concurrentes que tocan **solo entidades hijas** distintas sin modificar la raíz (JPA
+  no incrementa la versión de la raíz solo), fuerza el incremento con
+  `LockModeType.OPTIMISTIC_FORCE_INCREMENT` (`references/configuration.md`).
+  No uses locking pesimista salvo que el diseño lo exija.
+- **Un `version` declarado por el diseño no es el `@Version`**: es un contador de
+  **dominio** (viaja en la API y en los payloads de eventos, y sirve a los consumidores
+  para descartar eventos desordenados). Build lo mapea como campo escalar corriente,
+  en su propia columna `version`, junto al `lock_version` de JPA. Lo **incrementa el
+  agregado** en cada método mutador que el diseño describe como cambio observable
+  — incluidos los que solo tocan entidades hijas, donde Hibernate no incrementaría
+  nada. `expectedVersion` de la entrada se compara contra ese contador, y su mismatch
+  es el 409 propio del diseño, distinto del `OPTIMISTIC_LOCK_CONFLICT`.
+- **Soft-delete**: el DSL no lo declara; impleméntalo solo si el diseño lo pide
+  (columna `deleted_at` + filtro, `@SQLDelete`/`@SQLRestriction` de Hibernate).
+
+## Cierre
+
+El puerto `<E>Repository`, la interfaz `<E>JpaRepository`, el adaptador
+`<E>RepositoryImpl` y sus métodos (`findById`, finder por clave natural, `save`,
+`deleteById`, `list` paginado) ya existen. Ajusta anotaciones y completa los
+`toDomain`/`toJpa` donde build dejó TODO; no rehagas el patrón. Cada decisión no
+trivial (bidireccionalidad, `@Embeddable`, converter, `OPTIMISTIC_FORCE_INCREMENT`, autoría) va
+documentada en el README del proyecto generado, y debe quedar cubierta por algún
+escenario `FL-*` de `validation-scenarios.md` ejecutado en vivo.

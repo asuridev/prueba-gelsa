@@ -1,0 +1,71 @@
+# Infraestructura de prueba generada por keel-spring (según keel-stack.json).
+name: payment-spring
+services:
+  db:
+    container_name: payment-db
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: payment
+      POSTGRES_USER: payment
+      POSTGRES_PASSWORD: changeme
+    ports:
+      - 5432:5432
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - keel-payment
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - 5672:5672
+      - 15672:15672
+    container_name: payment-rabbitmq
+    networks:
+      - keel-payment
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.1
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - 8180:8080
+    networks:
+      - keel-payment
+  wiremock:
+    image: wiremock/wiremock:3.13.1
+    command:
+      - --verbose
+      - --global-response-templating
+    ports:
+      - 8090:8080
+    volumes:
+      - ./http-stubs:/home/wiremock:z
+    networks:
+      - keel-payment
+  devtools:
+    build:
+      context: ./docker
+    image: payment-devtools:0c508a98bd35
+    container_name: payment-devtools
+    command: sleep infinity
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+    depends_on:
+      - db
+      - rabbitmq
+      - keycloak
+      - wiremock
+    networks:
+      - keel-payment
+volumes:
+  db-data:
+networks:
+  keel-payment:
+    driver: bridge

@@ -1,0 +1,23 @@
+management:
+  tracing:
+    export:
+      enabled: false
+      otlp:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  prometheus:
+    metrics:
+      export:
+        enabled: false
+keel:
+  telemetry:
+    instrumentation:
+      mail:
+        enabled: false

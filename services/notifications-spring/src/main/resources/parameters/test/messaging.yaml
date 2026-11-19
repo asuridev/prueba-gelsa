@@ -1,0 +1,38 @@
+messaging:
+  publishing:
+    destination: ${MESSAGING_DESTINATION:notifications.events}
+    routing-keys:
+      email-sent: notifications.email-sent
+      email-delivery-failed: notifications.email-delivery-failed
+  subscriptions:
+    notification-requested:
+      topic: ${MESSAGING_SUBSCRIPTIONS_NOTIFICATION_REQUESTED_TOPIC:any-registered-system.events}
+      queue: ${MESSAGING_SUBSCRIPTIONS_NOTIFICATION_REQUESTED_QUEUE:notifications.any-registered-system}
+processed-event:
+  purge:
+    # Borrado del registro de idempotencia; la retención solo tiene que
+    # cubrir la ventana en la que el broker puede reentregar un mensaje.
+    cron: "${PROCESSED_EVENT_PURGE_CRON:0 0 4 * * *}"
+    retention-days: ${PROCESSED_EVENT_PURGE_RETENTION_DAYS:14}
+outbox:
+  relay:
+    # Sondeo de RESPALDO: al relay lo despierta el commit que escribe en el outbox,
+    # en su réplica; esto solo recoge lo que dejó una réplica caída (DSL 2.26).
+    poll-ms: ${OUTBOX_RELAY_POLL_MS:30000}
+    batch-size: ${OUTBOX_RELAY_BATCH_SIZE:100}
+    # Tras agotar los reintentos, la fila queda como dead-letter (no se
+    # reintenta más ni se borra); se reporta a ERROR para inspección.
+    max-attempts: ${OUTBOX_RELAY_MAX_ATTEMPTS:10}
+    # Backoff exponencial entre reintentos de una misma fila (initial·2^(n-1),
+    # con tope max-ms): evita el hot-looping si el broker está caído.
+    backoff:
+      initial-ms: ${OUTBOX_RELAY_BACKOFF_INITIAL_MS:1000}
+      max-ms: ${OUTBOX_RELAY_BACKOFF_MAX_MS:60000}
+    # Lease de una fila reclamada mientras su publicación está en vuelo: si la
+    # réplica muere, caduca y otra pasada la recoge. Debe superar con holgura la
+    # latencia peor del broker; por debajo, dos réplicas entregan lo mismo.
+    claim-timeout-ms: ${OUTBOX_RELAY_CLAIM_TIMEOUT_MS:60000}
+  purge:
+    # Borrado diario de lo ya publicado; la tabla no es un histórico.
+    cron: "${OUTBOX_PURGE_CRON:0 0 3 * * *}"
+    retention-days: ${OUTBOX_PURGE_RETENTION_DAYS:7}

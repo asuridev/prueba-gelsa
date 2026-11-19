@@ -1,0 +1,93 @@
+http-clients:
+  payment:
+    base-url: ${PAYMENT_BASE_URL}
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          payment:
+            authorization-grant-type: client_credentials
+            client-id: ${PAYMENT_CLIENT_ID}
+            client-secret: ${PAYMENT_CLIENT_SECRET}
+            scope: payment:charge, payment:read
+        provider:
+          payment:
+            token-uri: ${PAYMENT_TOKEN_URL}
+resilience4j:
+  retry:
+    instances:
+      payment-request-charge:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      payment-capture-payment:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      payment-cancel-payment:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+      payment-get-payment-by-charge-request:
+        max-attempts: 3
+        wait-duration: 300ms
+        enable-exponential-backoff: true
+        exponential-backoff-multiplier: 2
+        retry-exceptions:
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.ResourceAccessException
+        ignore-exceptions:
+          - org.springframework.web.client.HttpClientErrorException
+  circuitbreaker:
+    instances:
+      payment-request-charge:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30000ms
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.UnknownHttpStatusCodeException
+      payment-capture-payment:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30000ms
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.UnknownHttpStatusCodeException
+      payment-cancel-payment:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30000ms
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.UnknownHttpStatusCodeException
+      payment-get-payment-by-charge-request:
+        failure-rate-threshold: 50
+        sliding-window-size: 20
+        wait-duration-in-open-state: 30000ms
+        record-exceptions:
+          - org.springframework.web.client.ResourceAccessException
+          - org.springframework.web.client.HttpServerErrorException
+          - org.springframework.web.client.UnknownHttpStatusCodeException

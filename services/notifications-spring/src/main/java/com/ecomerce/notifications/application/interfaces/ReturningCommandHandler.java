@@ -1,0 +1,6 @@
+package com.ecomerce.notifications.application.interfaces;
+
+public interface ReturningCommandHandler<C extends ReturningCommand<R>, R> extends Handler {
+
+    R handle(C command);
+}

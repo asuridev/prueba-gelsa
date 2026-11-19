@@ -1,0 +1,33 @@
+server:
+  # Puerto por variable de entorno; 8080 es el que asumen los escenarios de validación.
+  port: ${SERVER_PORT:8080}
+  # Apagado ordenado: al recibir SIGTERM deja de aceptar conexiones nuevas y espera
+  # (hasta spring.lifecycle.timeout-per-shutdown-phase) a que terminen las peticiones en vuelo.
+  # Con los probes de Actuator activos, el readiness pasa a OUT_OF_SERVICE mientras drena.
+  shutdown: graceful
+spring:
+  application:
+    name: notifications
+  lifecycle:
+    # Margen máximo para que terminen las peticiones en curso antes de matar el proceso.
+    timeout-per-shutdown-phase: ${SHUTDOWN_TIMEOUT:30s}
+  threads:
+    virtual:
+      enabled: true
+  profiles:
+    # Perfil activo por variable de entorno; local para desarrollo en la máquina.
+    active: ${PROFILE:local}
+  jackson:
+    use-jackson2-defaults: true
+    datatype:
+      datetime:
+        write-dates-as-timestamps: false
+    write:
+      write-bigdecimal-as-plain: true
+  jpa:
+    open-in-view: false
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: 100

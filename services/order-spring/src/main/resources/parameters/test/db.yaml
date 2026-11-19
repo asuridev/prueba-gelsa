@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        auto_quote_keyword: true
+  flyway:
+    # El esquema del perfil test lo crea Hibernate en H2: las migraciones de
+    # db/migration/ están escritas para el dialecto real y no aplican aquí.
+    enabled: false

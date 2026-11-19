@@ -1,0 +1,17 @@
+# Perfil schema-export: exporta el DDL de las entidades JPA a un archivo.
+# No modifica la base de datos. Se activa SOBRE otro perfil (que aporta el
+# datasource) y lo usa infra/export-schema.sh:
+#   PROFILE=local,schema-export ./gradlew bootRun
+spring:
+  jpa:
+    hibernate:
+      # Hibernate no toca el esquema: solo lo describe.
+      ddl-auto: none
+    properties:
+      jakarta.persistence.schema-generation.scripts.action: create
+      jakarta.persistence.schema-generation.scripts.create-target: build/schema/baseline.sql
+      # Sin delimitador las sentencias salen sin ';' y el SQL no es ejecutable.
+      hibernate.hbm2ddl.delimiter: ";"
+  flyway:
+    # Se exporta el esquema que describen las entidades, no el que ya haya aplicado.
+    enabled: false

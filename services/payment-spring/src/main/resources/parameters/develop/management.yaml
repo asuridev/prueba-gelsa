@@ -1,0 +1,14 @@
+management:
+  endpoints:
+    web:
+      exposure:
+        include: ${MANAGEMENT_ENDPOINTS:health,info,metrics,prometheus}
+  endpoint:
+    health:
+      probes:
+        # Habilita /actuator/health/liveness y /actuator/health/readiness.
+        enabled: true
+        # Y además /livez y /readyz en el puerto PRINCIPAL: son las que consultan el HEALTHCHECK
+        # de la imagen y el orquestador, y tienen que responder aunque el actuator viva en otro.
+        add-additional-paths: true
+      show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:always}
