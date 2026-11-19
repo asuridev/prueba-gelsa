@@ -33,9 +33,19 @@ hace falta cuenta ni clave: el resultado del cobro lo decide la tarjeta de prueb
 Stripe real. Si tienes una clave `sk_test_…`, puedes usar Stripe real poniéndola en un `.env` (ver
 [`.env.example`](.env.example)).
 
-1. (Opcional) Copia `.env.example` como `.env` si quieres cambiar puertos o usar Stripe real.
-2. `bash up.sh`: construye las imágenes, arranca el sistema y espera a que termine la siembra.
-3. Lanza las peticiones con la colección de Postman (empieza por «0. Autenticación»):
+1. Clona el repositorio y entra en su carpeta:
+
+   ```bash
+   git clone https://github.com/asuridev/prueba-gelsa.git
+   cd prueba-gelsa
+   ```
+
+   Necesitas Docker o Podman (con `podman-compose`) y una terminal bash. **En Windows, usa Git Bash**, no `cmd`
+   ni PowerShell: allí el comando `bash` es el de WSL y no encuentra compose. Desde `cmd` también puedes
+   lanzarlo con `"C:\Program Files\Git\bin\bash.exe" up.sh`.
+2. (Opcional) Copia `.env.example` como `.env` si quieres cambiar puertos o usar Stripe real.
+3. `bash up.sh`: construye las imágenes, arranca el sistema y espera a que termine la siembra.
+4. Lanza las peticiones con la colección de Postman (empieza por «0. Autenticación»):
    - **Import**: el archivo [`postman/order-flujo.postman_collection.json`](postman/order-flujo.postman_collection.json)
      (formato clásico v2.1; el botón Import no acepta la carpeta v3).
    - **Local Files → Open Folder** con la raíz del repo: Postman lee la versión v3 de
@@ -50,13 +60,13 @@ Stripe real. Si tienes una clave `sk_test_…`, puedes usar Stripe real poniénd
 
    ![Postman: POST /orders con dos camisetas y una taza pagadas con pm_card_visa; la respuesta 201 Created trae el pedido en authorized con totalAmount 49.30 EUR, paymentId y las líneas con sku, nombre y precio congelados](docs/images/postman-crear-pedido.png)
 
-4. **Valida las notificaciones en Mailpit: http://localhost:8025.** Es el buzón donde llega cada correo que
+5. **Valida las notificaciones en Mailpit: http://localhost:8025.** Es el buzón donde llega cada correo que
    envía notifications al comprador (`buyer@example.com`): uno por desenlace del pedido (pagado, pago fallido
    o cancelado), como mucho un minuto después de que el pedido cambie de estado.
 
    ![Mailpit: bandeja con los correos enviados a buyer@example.com y, abierto, el de pedido pagado: «Hemos cobrado 49.30 EUR por tu pedido…», enviado por Tienda de prueba](docs/images/mailpit-correo-pagado.png)
 
-5. `bash down.sh` para apagarlo (`bash down.sh -v` borra también la base y vuelve a sembrar al subir).
+6. `bash down.sh` para apagarlo (`bash down.sh -v` borra también la base y vuelve a sembrar al subir).
 
 La siembra ([`compose/seed/seed.sh`](compose/seed/seed.sh)) crea el comprador `buyer`, el cliente M2M con el
 que order llama a payment, el remitente y las tres plantillas de correo, y emula tres productos del catálogo.

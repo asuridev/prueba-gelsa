@@ -31,10 +31,19 @@ hostpath() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
 }
 
-# Con podman, 'podman compose' delega en podman-compose si está instalado.
+# Con podman, 'podman compose' delega en podman-compose si está instalado. Se comprueba ANTES de
+# construir nada. En Windows, el caso típico de fallo es lanzar 'bash up.sh' desde cmd o PowerShell:
+# ese 'bash' es el de WSL, el script acaba dentro de la máquina virtual de podman y allí no hay compose.
 if [ "$RUNTIME" = "podman" ]; then
   if command -v podman-compose >/dev/null 2>&1; then COMPOSE=(podman-compose)
   else COMPOSE=(podman compose); fi
+  if ! "${COMPOSE[@]}" version >/dev/null 2>&1; then
+    echo "No encuentro compose para podman." >&2
+    echo "  - En Windows: ejecuta este script desde Git Bash, no desde cmd ni PowerShell (allí 'bash' es" >&2
+    echo "    el de WSL). Desde cmd también vale: \"C:\\Program Files\\Git\\bin\\bash.exe\" up.sh" >&2
+    echo "  - Si no lo tienes instalado: pip install podman-compose" >&2
+    exit 2
+  fi
   # Formato docker: el OCI por defecto descarta el HEALTHCHECK del Dockerfile, y sin él
   # ningún servicio pasa a healthy y la siembra no arranca nunca.
   BUILD_FORMAT=(--format docker)
