@@ -1,5 +1,15 @@
 # Arquitectura de la solución — order · payment · notifications
 
+> **Dónde está el código.** El repositorio es https://github.com/asuridev/prueba-gelsa, y cada microservicio
+> vive en su propia carpeta dentro de https://github.com/asuridev/prueba-gelsa/tree/main/services:
+> [order-spring](https://github.com/asuridev/prueba-gelsa/tree/main/services/order-spring),
+> [payment-spring](https://github.com/asuridev/prueba-gelsa/tree/main/services/payment-spring) y
+> [notifications-spring](https://github.com/asuridev/prueba-gelsa/tree/main/services/notifications-spring).
+>
+> **Cómo probarlo.** El [README del repositorio](https://github.com/asuridev/prueba-gelsa#probar-el-flujo-completo)
+> explica cómo levantar el sistema completo con el `docker-compose.yaml` de la raíz y cómo hacer las pruebas
+> manuales: la colección de Postman, qué validar en cada paso y dónde ver los correos.
+
 ## 1. La solución en una frase
 
 Un comprador hace un pedido desde una SPA; **order** lo registra con el precio que vio, le pide a
@@ -38,7 +48,7 @@ order. Se construyen primero los proveedores y al final el consumidor, que se di
   responde «aceptado» y envía después, con la garantía de no duplicar ningún mensaje.
 
 Las tres piezas comparten la misma forma: una API propia, una base PostgreSQL propia, y eventos
-publicados con *outbox* transaccional sobre RabbitMQ. La sección 6 detalla
+publicados con *outbox* transaccional sobre RabbitMQ. La sección 5 detalla
 cada servicio: su responsabilidad, sus datos, sus contratos y su comportamiento ante fallos.
 
 ## 3. Infraestructura
@@ -52,8 +62,8 @@ quedó en su `keel-stack.json`:
 | Base de datos | PostgreSQL | Una por servicio |
 | Broker | RabbitMQ | Canales de eventos, con DLQ por suscripción |
 | Identidad | Keycloak (OIDC) | Tokens de comprador, de back-office y de máquina (M2M) |
-| Telemetría | OpenTelemetry | Trazas que cruzan HTTP y eventos |
-| Pasarela de pago | **Stripe**, por su API REST (Payment Intents) con HTTP plano, sin SDK | Solo payment la usa; el diseño no la nombra y la trata como intercambiable. Ver [Integración con Stripe](#622-integración-con-stripe) |
+| Telemetría | OpenTelemetry, con un colector entre cada servicio y el backend | Trazas que cruzan HTTP y eventos, métricas y logs. Ver [Observabilidad](#7-observabilidad) |
+| Pasarela de pago | **Stripe**, por su API REST (Payment Intents) con HTTP plano, sin SDK | Solo payment la usa; el diseño no la nombra y la trata como intercambiable. Ver [Integración con Stripe](#522-integración-con-stripe) |
 | Correo | SMTP | Solo notifications; el proveedor es configuración de despliegue |
 
 Cambiar RabbitMQ por Kafka, o Stripe por otra pasarela, no toca el diseño: se vuelve a generar con
@@ -126,7 +136,7 @@ pide necesita una respuesta ahora. La regla es sencilla: *si necesito algo y esp
 anuncio que algo ocurrió, evento.*
 
 **Qué cuesta.** El broker entrega cada mensaje **al menos una vez**, así que puede llegar repetido. Por
-eso los suscriptores se protegen contra duplicados (secciones 6.x.1 y 8).
+eso los suscriptores se protegen contra duplicados (secciones 5.x.1 y 8).
 
 ### 4.3 Por qué RabbitMQ
 
@@ -180,9 +190,9 @@ diseños.
 | Servidor de identidad | Un único emisor de tokens para personas, back-office y máquinas | Un servicio crítico más: si cae, nadie obtiene tokens nuevos | Sí |
 | Keycloak | OIDC, roles y *client-credentials* en una sola herramienta que se autoaloja | Operarlo y mantenerlo | Sí, se regenera con otro IdP |
 
-## 6. Cada servicio
+## 5. Cada servicio
 
-### 6.1 order — el pedido y su cobro
+### 5.1 order — el pedido y su cobro
 
 Es la puerta de entrada del comprador: recibe sus pedidos, calcula cuánto hay que cobrar y se lo pide
 a payment.
@@ -221,7 +231,7 @@ Y este es el ciclo de vida del pedido:
 El ciclo de vida de `Order` es un **espejo simplificado** del de `Payment`: order no necesita saber que
 un cobro está `capturing`; le basta con saber que está `authorized` hasta que llega `PaymentCaptured`.
 
-#### 6.1.1 Idempotencia en order
+#### 5.1.1 Idempotencia en order
 
 order sabe que le van a repetir cosas: el comprador hace doble clic o reintenta tras un timeout, y
 RabbitMQ puede entregar dos veces el mismo evento. Para que ninguna repetición cree un segundo pedido ni
@@ -258,7 +268,7 @@ sobre un pedido que ya está `paid` no hace nada, ni vuelve a pedir el correo.
 | payment | `chargeRequestId = order:<id>` | payment devuelve el mismo cobro, sin volver a llamar a Stripe. Es lo que permite reintentar la llamada automáticamente |
 | notifications | `idempotencyKey = order:<id>:<desenlace>` (`paid`, `payment-failed`, `canceled`) | Un solo correo por desenlace, aunque el evento se entregue dos veces |
 
-### 6.2 payment — cobrar sin saber qué se vende
+### 5.2 payment — cobrar sin saber qué se vende
 
 Es la infraestructura de cobro: autoriza, captura, anula y devuelve importes con tarjeta que le piden
 otros servidores, y admite 3DS.
@@ -287,7 +297,7 @@ Cuatro detalles que explican el diagrama:
 - **El cobro apunta al medio solo por valor.** `paymentMethodId` es opcional, y el medio tiene que ser del
   `Wallet` con el mismo `customerRef` que el cobro.
 - **Las claves de negocio son únicas.** `chargeRequestId` y `refundRequestId` no se pueden repetir: son las
-  guardas de idempotencia que se explican en la sección 6.2.1. Y de la tarjeta solo se guardan la marca,
+  guardas de idempotencia que se explican en la sección 5.2.1. Y de la tarjeta solo se guardan la marca,
   los últimos 4 dígitos y la caducidad; la referencia de Stripe del medio es sensible y nunca sale en una
   respuesta.
 
@@ -301,7 +311,7 @@ no lo repite a ciegas; y dos acciones incompatibles (capturar y anular) no puede
 pasarela. Si Stripe rechaza una captura, una anulación o una devolución, el cobro vuelve al estado
 anterior (`authorized` o `captured`).
 
-#### 6.2.1 Idempotencia en payment
+#### 5.2.1 Idempotencia en payment
 
 payment sabe que **su consumidor va a repetir peticiones**: tras un timeout, un reintento automático o
 un doble clic. Por eso cada operación con efectos tiene una guarda propia, y la guarda no es siempre
@@ -364,7 +374,7 @@ el medio guardado, de modo que no puede existir una clave sin recurso detrás. U
 clave**: tras un rechazo, un 3DS pendiente o una pasarela que no contestó, se puede reintentar con la
 misma. Una fila caducada se trata como inexistente aunque la purga aún no haya pasado.
 
-#### 6.2.2 Integración con Stripe
+#### 5.2.2 Integración con Stripe
 
 La pasarela de pago es **Stripe**, y payment es el único servicio que habla con ella. Se usa su
 **API REST de Payment Intents**, llamada por HTTP directo (sin el SDK de Stripe) desde
@@ -422,7 +432,7 @@ a Stripe como `payment_method`. Ningún servicio nuestro lo guarda ni ve la tarj
 - Stripe queda detrás del puerto `PaymentGateway`. El dominio y los demás servicios no conocen sus
   tipos, así que cambiar de pasarela implica reescribir ese adaptador, no el diseño.
 
-#### 6.2.3 Resiliencia al consumir payment (order → payment)
+#### 5.2.3 Resiliencia al consumir payment (order → payment)
 
 order es el único consumidor de payment. Llama a su API con **Resilience4j** sobre un cliente HTTP
 declarado en el diseño (`specs/order/http-clients.keel.yaml`) y materializado en `PaymentHttpAdapter`.
@@ -471,7 +481,7 @@ La combinación forma tres capas: **reintento** para el fallo pasajero, **circui
 caída sostenida y **barrido de reconciliación** para lo que ninguna de las dos resuelve. Las tres
 apoyadas en la idempotencia de payment.
 
-### 6.3 notifications — enviar cada correo una sola vez
+### 5.3 notifications — enviar cada correo una sola vez
 
 Es quien envía el correo transaccional: otros servicios le piden un correo y él lo compone, lo envía y
 avisa del resultado, **una sola vez**.
@@ -512,7 +522,7 @@ Y este es el flujo de un mensaje:
 **Qué publica.** El desenlace en `notificationEvents` (`EmailSent`, `EmailDeliveryFailed`). order no los
 escucha: el correo no cambia el estado de un pedido.
 
-#### 6.3.1 Idempotencia en notifications
+#### 5.3.1 Idempotencia en notifications
 
 notifications sabe que le van a pedir el mismo correo más de una vez: el llamante reintenta tras un
 timeout, y el evento `NotificationRequested` llega por un canal que puede entregar dos veces. Y sabe
@@ -562,7 +572,7 @@ y eso es una decisión del llamante. Una petición que llega por evento y falla 
 mensajes muertos, y como la idempotencia hace segura la reinyección, se puede volver a publicar sin
 riesgo de duplicar.
 
-## 7. El flujo de una compra
+## 6. El flujo de una compra
 
 Esta sección cuenta una compra de principio a fin, para ver cómo trabajan juntos los tres servicios. Hay
 dos recorridos: el que sale bien y el del comprador que empieza a pagar con 3DS y lo abandona.
@@ -570,7 +580,7 @@ dos recorridos: el que sale bien y el del comprador que empieza a pagar con 3DS 
 Los diagramas se leen de arriba abajo. Las flechas continuas son llamadas, las discontinuas son
 respuestas y las de punta abierta son eventos que viajan por RabbitMQ.
 
-### 7.1 Compra con pago aprobado
+### 6.1 Compra con pago aprobado
 
 El comprador hace el pedido, order lo registra con el precio que vio y le pide a payment que cobre.
 Stripe autoriza el importe, el comprador recibe su pedido ya autorizado y, por detrás, un evento hace que
@@ -621,7 +631,7 @@ sequenceDiagram
 - **Un rechazo de tarjeta no es un error.** `createOrder` responde `201` con el pedido en
   `paymentFailed`. Un error HTTP significa que la petición estaba mal, no que el banco dijo que no.
 
-### 7.2 Con 3DS y el comprador que abandona
+### 6.2 Con 3DS y el comprador que abandona
 
 Con 3DS, el banco le pide al comprador un paso extra para confirmar el pago. Si lo completa, el pedido
 sigue el camino de arriba. Si lo abandona, puede cancelar: order le pide a payment que anule la
@@ -661,6 +671,189 @@ sequenceDiagram
 - **Solo hay tres correos.** `order-paid`, `order-payment-failed` y `order-canceled`, cada uno con una
   `idempotencyKey` de la forma `order:<id>:<desenlace>`. Aunque un evento se entregue dos veces, el
   comprador recibe un único correo.
+
+## 7. Observabilidad
+
+Cuando un comprador dice «mi pedido se quedó a medias», hay que poder seguir *esa* compra de servicio en
+servicio y ver dónde se torció. De eso va esta sección: qué cuenta cada servicio de sí mismo, por dónde lo
+cuenta y cómo se junta todo en una sola historia.
+
+La buena noticia es que los tres se generaron con la misma telemetría (`telemetry: otel` en su
+`keel-stack.json`), así que **se observan igual**: mismas señales, mismo camino y mismas convenciones. Lo único
+que cambia de uno a otro es lo que hacen y, por tanto, lo que se ve.
+
+### 7.1 Tres señales, tres preguntas
+
+Cada servicio cuenta lo que le pasa de tres formas, y cada una responde a una pregunta distinta:
+
+- **Trazas: ¿por dónde pasó *esta* petición y dónde se fue el tiempo?** El servicio las **envía** al colector
+  por OTLP/HTTP (`OTEL_EXPORTER_OTLP_ENDPOINT`), en lotes comprimidos.
+- **Métricas: ¿cómo se está portando el servicio en conjunto?** El servicio las deja publicadas en
+  `/actuator/prometheus` y **es el colector quien pasa a recogerlas** cada 15 s.
+- **Logs: ¿qué decidió el código en ese momento?** Salen siempre por la consola (en JSON ECS fuera de `local`)
+  para que los recoja la plataforma. Opcionalmente, también por OTLP (`LOG_EXPORT_OTLP`).
+
+**Qué conviene fijarse.**
+
+- **Las métricas se recogen, no se envían, y es a propósito.** Así viajan los *exemplars*, el enlace que lleva
+  de un punto de una gráfica («el p95 subió») a una traza concreta que lo explica. Van en el formato de
+  Prometheus, y el exportador OTLP de métricas de esta versión de Spring Boot no sabe emitirlos. Quien no pueda
+  recogerlas puede enviarlas con `METRICS_EXPORT_OTLP=true`; solo pierde los exemplars.
+- **Los logs nunca por los dos caminos a la vez**, o cada línea llegaría duplicada. En producción los recoge la
+  plataforma desde la consola; el camino OTLP solo está encendido en el entorno de pruebas de cada servicio
+  (`deploy/`), donde nadie mira la consola.
+- **Tres hilos para tirar de una compra.** `trace.id` lleva a la traza. `correlationId` es el
+  `X-Correlation-Id` que recibió el cliente y aparece en logs, spans y eventos. `keel.operation` es el nombre
+  de la operación del diseño.
+
+### 7.2 Un colector en medio
+
+La idea que lo sostiene todo es sencilla: **el servicio no habla con ningún backend de observabilidad.** Solo
+conoce la dirección de un *colector OpenTelemetry* y se lo entrega todo a él. A dónde va después (Tempo,
+Jaeger, Prometheus, Loki, un SaaS…) se decide **solo en la configuración del colector**. Cambiar de backend es
+editar su bloque `exporters` y reiniciarlo: la aplicación no se recompila, no se redespliega y ni se entera.
+
+```mermaid
+flowchart LR
+    subgraph SVC["Cada microservicio"]
+        APP["Spring Boot<br/>Micrometer + OpenTelemetry"]
+        ACT["/actuator/prometheus"]
+        CON["consola JSON ECS"]
+        APP --- ACT
+        APP --- CON
+    end
+
+    subgraph COL["otel-collector"]
+        direction LR
+        R["receivers<br/>otlp · prometheus"]
+        P["processors<br/>memory_limiter → resource/scrape<br/>→ resourcedetection → attributes/redact<br/>→ batch"]
+        E["exporters<br/>otlphttp/backend"]
+        R --> P --> E
+    end
+
+    APP -- "trazas y logs · OTLP/HTTP" --> R
+    R -. "scrape cada 15 s" .-> ACT
+    CON -. "la recoge la plataforma" .-> R
+    E --> BK[("Backend<br/>trazas · métricas · logs")]
+```
+
+**Por qué merece la pena un colector en medio.**
+
+- **El servicio no guarda credenciales de observabilidad.** Las del backend viven en el entorno del colector
+  (`${env:…}`), nunca en el servicio ni en el repositorio.
+- **Si el backend cae, el servicio ni lo nota.** Sigue respondiendo igual; quien acumula reintentos
+  (`retry_on_failure`) y encola (`sending_queue`) es el colector, y los datos reaparecen cuando el backend
+  vuelve.
+- **Las reglas se ponen una vez para los tres.** Tapar credenciales, enriquecer los datos y, en producción,
+  decidir qué trazas se guardan se aplica igual a los tres servicios, sin tocar su código.
+
+Dentro del colector, los datos pasan por una cadena de procesadores (una por señal), y **el orden no es
+casual**:
+
+| Procesador | Qué hace | Por qué ahí |
+|---|---|---|
+| `memory_limiter` | Rechaza datos si el colector se queda sin memoria | **El primero**: si el backend se atasca, el colector dice «ahora no» en vez de caerse, y el servicio reintenta |
+| `resource/scrape` | Pone `service.name` y `deployment.environment` a las métricas | Solo en métricas: lo que se recoge de `/actuator/prometheus` no trae esos datos, y sin ellos el panel no sabría de qué servicio es cada gráfica |
+| `resourcedetection` | Completa los datos del entorno, sin pisar lo que ya trae la aplicación | Antes de enviar |
+| `attributes/redact` | Borra las cabeceras `authorization`, `cookie`, `set-cookie` y `x-api-key` | La última red: ninguna credencial llega al backend aunque algo la capture por el camino |
+| `batch` | Agrupa y comprime | **El último**: enviar dato a dato satura cualquier backend |
+
+En el entorno de pruebas, el colector añade dos salidas de diagnóstico: `debug` (un resumen de cada lote en
+sus logs) y `file/*` (lo que salió, tal cual, en `deploy/otel/out/`). Sirven para responder rápido a la
+pregunta de siempre: si «no llega nada», ¿se rompe antes o después del colector?
+
+### 7.3 Qué cuenta cada servicio
+
+El mecanismo es el mismo en los tres; lo que cuentan sale del diseño de cada uno. Todos se identifican en
+todas las señales por su `service.name` (`order`, `payment`, `notifications`) y traen su propio panel de
+Grafana y sus alertas en `deploy/observability/`.
+
+- **order cuenta la compra entera.** Un span por caso de uso (`keel.operation`), el consumo de los eventos de
+  payment, la publicación desde el outbox y, sobre todo, **la llamada HTTP a payment**, con sus reintentos y el
+  circuit breaker a la vista. También el barrido de reconciliación.
+- **payment cuenta el cobro.** Un span por caso de uso, la publicación desde el outbox y cada llamada a
+  Stripe, además del barrido contra la pasarela y los avisos que llegan de ella.
+- **notifications cuenta el envío.** Un span por caso de uso, el consumo de `NotificationRequested` y un span
+  **`keel.mail.send`** por cada entrega al relay SMTP, con el recorrido `queued → sending → sent`.
+
+Las métricas son las mismas en los tres: `keel.use-case`, `keel.message.consume`, `keel.outbox.publish` y
+`keel.timer.tick` (los barridos). notifications añade **`keel.mail.send`**, porque es el único con un
+proveedor de correo detrás. Por eso su panel (`notifications — Keel`) tiene una fila «Correo» que los
+paneles de `order — Keel` y `payment — Keel` no tienen. El resto de filas es común: casos de uso, HTTP,
+outbox, mensajes consumidos, barridos y runtime (heap, GC, pool de conexiones). Cada panel solo enseña lo
+que su diseño tiene.
+
+**Las alertas ya vienen puestas** en los tres:
+
+- **Eventos del outbox rendidos** (`keel.outbox.dead_lettered > 0`). Es pérdida de datos, así que tiene que
+  ser siempre 0.
+- **Tasa de error de los casos de uso** por encima del 5 %.
+- **p95 de los casos de uso** por encima de 1 s.
+- **Pool de conexiones saturado** y **presión de memoria** en el heap.
+
+Sin datos no disparan: un servicio recién desplegado o sin tráfico no avisa de todo a la vez.
+
+### 7.4 Una compra, una sola traza
+
+Observar los tres servicios igual tiene un premio: poder seguir una compra de principio a fin como **una sola
+historia**. La traza nace en order y viaja por dos caminos:
+
+- **Por HTTP (order → payment).** El cliente HTTP de order añade la cabecera W3C `traceparent`, y payment
+  continúa la misma traza. Al recibir, también se aceptan cabeceras B3.
+- **Por eventos (payment → order → notifications).** El contexto de traza va dentro del sobre del evento
+  (`metadata.traceparent`) y, con RabbitMQ, también en la cabecera nativa del broker. El relay del outbox
+  publica **dentro de la traza original**, aunque lo haga más tarde, y quien consume engancha su span al del
+  emisor. Para que el hilo no se corte, cada listener abre el contexto con la *metadata* del sobre
+  (`CorrelationContext.runWith(envelope.metadata(), …)`) y no solo con el `correlationId`.
+
+El resultado es que una compra con el pago aprobado (sección 6.1) se ve como **una sola traza** que cruza los
+tres servicios, y que con el `X-Correlation-Id` que devolvió order se llega a sus logs en cada uno. Si
+aparecen dos trazas separadas donde debería haber una, el eslabón roto suele ser un listener o un cliente HTTP
+escrito a mano.
+
+**Qué se deja fuera, para no ahogar lo importante.** Antes de enviar nada se descartan las peticiones a
+`/actuator` y a las sondas, los ciclos de las tareas programadas y las consultas a la base que no cuelgan de
+ningún trabajo. Sin ese filtro, el relay del outbox produciría una traza vacía en cada pasada.
+
+### 7.5 Del entorno de pruebas a producción
+
+El colector que hace falta depende de dónde se despliegue, no del servicio: el mismo jar sirve en Kubernetes,
+en una VM o en ECS. Por eso cada servicio trae tres configuraciones en `deploy/otel/`:
+
+- **`collector.yaml`: el de pruebas.** Un único colector junto a un Grafana LGTM (Tempo + Loki + Prometheus) en
+  un contenedor. Recibe OTLP, recoge las métricas del servicio (`app:8080`) y lo envía todo a `lgtm`. Es el
+  que se levanta con `deploy/up.sh`.
+- **`collector-agent.example.yaml`: el agente de cada nodo** (un DaemonSet). Recoge la consola de los
+  contenedores (`filelog`), añade los datos de Kubernetes y reparte las trazas **por `traceID`** entre los
+  gateways. Es una plantilla: no se ha desplegado.
+- **`collector-gateway.example.yaml`: el gateway central.** Es el único que conoce el backend, y decide qué
+  trazas se guardan con *muestreo por cola* (`tail_sampling`). También es una plantilla.
+
+**Por qué en producción son dos y no uno.** Para recoger la consola hay que estar *en cada nodo*; para decidir
+si una traza merece guardarse hay que tenerla *entera delante*, con todos sus spans en el mismo colector. Las
+dos cosas no caben en el mismo sitio, y de ahí el reparto por `traceID`.
+
+**Qué trazas se guardan.** El muestreo por cola se queda con **todas las que tienen error, todas las que tardan
+más de 1 s y un 10 % del resto**. Las interesantes son justo las raras, y muestrear a ciegas en el servicio
+las perdería. Si se usa, hay que poner `TRACING_SAMPLING_PROBABILITY=1.0` en cada servicio; si no, se muestrea
+dos veces (por defecto, el servicio guarda el 100 % en `develop` y el 10 % en `production`).
+
+### 7.6 Lo que nunca sale, y dónde estamos hoy
+
+- **Ni datos personales, ni secretos, ni cuerpos de petición.** Los campos `personal` (`customerRef`,
+  `customerEmail`, destinatarios, asuntos renderizados…) y `sensitive` no aparecen en logs, trazas ni
+  etiquetas de métricas: se identifica todo por id. Y, como última red, el colector borra las cabeceras con
+  credenciales.
+- **Las etiquetas de las métricas tienen pocos valores posibles** (operación, tipo de evento, desenlace). Los
+  ids de negocio y el `correlationId` van como atributos del span, nunca como etiqueta: un id como etiqueta
+  multiplicaría las series hasta hacer inmanejable el backend.
+- **El `docker-compose.yaml` de la raíz no envía telemetría.** Levanta el sistema completo para validar el flujo
+  con `TELEMETRY_EXPORT_ENABLED=false` y sin colector. El colector y Grafana viven en el `deploy/` de **cada
+  servicio**, que prueba un servicio aislado, y no conviene tener los dos arriba a la vez porque publican los
+  mismos puertos. Para ver la compra completa como una sola traza, habría que llevar el colector al compose del
+  sistema o apuntar los tres servicios a uno común.
+- **Las plantillas de producción (agente y gateway) no se han probado en un clúster.** Están validadas en su
+  forma, no contra un destino real.
 
 ## 8. Patrones de fiabilidad (y por qué están)
 

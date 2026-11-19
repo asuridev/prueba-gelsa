@@ -42,10 +42,21 @@ Stripe real. Si tienes una clave `sk_test_…`, puedes usar Stripe real poniénd
      [`postman/collections/`](postman/collections/).
    - **Terminal**: `postman collection run "postman/collections/Sistema de pedidos - flujo desde order"`.
 
-   Las mismas
-   peticiones están en [`compose/requests.http`](compose/requests.http) para VS Code. Los correos se ven en
-   http://localhost:8025.
-4. `bash down.sh` para apagarlo (`bash down.sh -v` borra también la base y vuelve a sembrar al subir).
+   Las mismas peticiones están en [`compose/requests.http`](compose/requests.http) para VS Code. Qué enviar
+   en cada paso, qué debe responder y qué pasa por detrás: [`docs/pruebas-manuales.md`](docs/pruebas-manuales.md).
+
+   Un pedido pagado con `pm_card_visa`: order responde `201` en `authorized`, calcula él mismo el importe
+   (49.30 EUR) y congela sku, nombre y precio en cada línea.
+
+   ![Postman: POST /orders con dos camisetas y una taza pagadas con pm_card_visa; la respuesta 201 Created trae el pedido en authorized con totalAmount 49.30 EUR, paymentId y las líneas con sku, nombre y precio congelados](docs/images/postman-crear-pedido.png)
+
+4. **Valida las notificaciones en Mailpit: http://localhost:8025.** Es el buzón donde llega cada correo que
+   envía notifications al comprador (`buyer@example.com`): uno por desenlace del pedido (pagado, pago fallido
+   o cancelado), como mucho un minuto después de que el pedido cambie de estado.
+
+   ![Mailpit: bandeja con los correos enviados a buyer@example.com y, abierto, el de pedido pagado: «Hemos cobrado 49.30 EUR por tu pedido…», enviado por Tienda de prueba](docs/images/mailpit-correo-pagado.png)
+
+5. `bash down.sh` para apagarlo (`bash down.sh -v` borra también la base y vuelve a sembrar al subir).
 
 La siembra ([`compose/seed/seed.sh`](compose/seed/seed.sh)) crea el comprador `buyer`, el cliente M2M con el
 que order llama a payment, el remitente y las tres plantillas de correo, y emula tres productos del catálogo.
