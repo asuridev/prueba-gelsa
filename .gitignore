@@ -8,3 +8,8 @@ services/*/infra/test-credentials.env
 
 # Logs sueltos
 *.log
+
+# Salida de compilar que dejan los IDE (VS Code / Eclipse) en bin/, y la de Gradle en build/
+# (cada servicio ya ignora build/; bin/ no estaba cubierto).
+services/*/bin/
+services/*/build/
