@@ -1,0 +1,141 @@
+reviewedAt: 0.1.0
+passes: 3
+scenariosSha256: a33311806d8afd34d6a920ab5d35433cae87609c633dde4ce0757b15854ffaa6
+conventionsSha256: 1512426e85654f8653d19af71c66238f184f0b9bf17bfb9133b71c5150e25b62
+flows:
+  - { id: FL-ORD-001, sha256: d6c6f070444fa881536d433daef8a53f0e2e1988079032438fe7531807705a51 }
+  - { id: FL-ORD-002, sha256: 62b440c453770386cb3a34e1b9b145e52f8ce49cdaf58c3b776ed4d76d3c790d }
+  - { id: FL-ORD-003, sha256: efba7de6935281b6ea9c7c0bbe88ac6c0c6681d174b1a6588ca0e60a07230ed9 }
+  - { id: FL-ORD-004, sha256: 9f81f8ebd1d91ecc1887107bd0a4868748d9a7b6923e878de521088a0652d8b9 }
+  - { id: FL-ORD-005, sha256: 084bad1060799f35d232fcb1715874b7f45becc594ceb98351f3462fa017d074 }
+  - { id: FL-ORD-006, sha256: bc282b9186405c508de6d727a5fca661f904eb6162ba2b40094ffaad6af6a46e }
+  - { id: FL-ORD-007, sha256: 8e6160f605aac923e0ee5d7f9dcda0f662015c094597a4b88d7b6c0db57bc7f9 }
+  - { id: FL-ORD-008, sha256: e3a0be5a0c0e3d02ef4c2af10d97f54e6714686577ffb6ffa69b045e94aa5bb4 }
+  - { id: FL-ORD-009, sha256: 94ce31d74c5845ff2b1dc80d8cf3e7206998e296c73f8a6e5a10b1ab7cf9b727 }
+  - { id: FL-ORD-010, sha256: 44be4f7e4a8807dc92ff8ccfd713de9f269fb9926a95b6443ac356877ab4448c }
+  - { id: FL-ORD-011, sha256: b881746ce74f013ce2718fb99cfc3c26c1cfeef952b5b01314bef4de10aca71f }
+  - { id: FL-ORD-012, sha256: b55486539c8137ae0aa4b48ce16630a0b9eb84522fe517cd9b8ea7d5b7a03cb1 }
+  - { id: FL-ORD-013, sha256: 58201e1913bd50c03bf32c37248a8f012bc7a517262f9bb1a7949f8a2325c5c7 }
+  - { id: FL-PAY-001, sha256: 87b255dbaab948c0cda33f43b481f1e7ec466f1d7dcf9eeef0b0fa7a3dab81bc }
+  - { id: FL-PAY-002, sha256: 27691885eb05002bfa47a961acde569a1bc887fa07b3dccd0e91b90000d7f780 }
+  - { id: FL-PAY-003, sha256: ad69f8d3ddace104c00f80b1c2ada3d2492d6731d35dbb2419fbf47b1b401cc0 }
+  - { id: FL-PAY-004, sha256: 7a32b8df86257963cee38a995754d4b12fa894c394be0550f698bb03cb124723 }
+  - { id: FL-PAY-005, sha256: bf5dc76c4f857c8a7ea56ed80b2da490a73e987a5813f6289860862a1b951240 }
+  - { id: FL-PAY-007, sha256: 112ff871bdf743408f9535092c5f8274adc88de410a4477091ae4c223fba89e7 }
+  - { id: FL-CAN-001, sha256: fce54d9865a7fa9ff840c1f010ee923fb14ae2aa93f4b60b969d44245b806115 }
+  - { id: FL-CAN-002, sha256: 4abaa7c62b8674590ad2678c683fbd3f274202ebbe7328f6f3dd2215a5b637cb }
+  - { id: FL-CAN-003, sha256: 3a51e6370d4add7dced4246c15aa383285e4e440fd7182132874129155893946 }
+  - { id: FL-CAN-004, sha256: 5ba4bb475ca08d9cc157ccb8edd8437b4260dbe739ce5cdebaeaa29a0a65eed7 }
+  - { id: FL-CAN-005, sha256: 0329c9670eca8c9edfbba903dcdcd98a343c6efd1b22c5efb211b0bfdf5ae20b }
+  - { id: FL-CAN-006, sha256: b1f91ba35f65ea7888023b01d7a90bb1f13167ea7444edc78fd7ec4135ce026d }
+  - { id: FL-REC-001, sha256: 5bb52b9829c7db936b6d8cd411c4cf2671e6c5f1137041b0a5b467fdc30c1253 }
+  - { id: FL-REC-002, sha256: 28c3aecdff8fd8f05f6994a939923dab0d28a471967f9a529e2b7d3a0c0e9cc2 }
+  - { id: FL-REC-003, sha256: 0cc6f568dc724148995310867a1b07d0aceec4f7bb57f57c737e0d2518559fdf }
+  - { id: FL-REC-004, sha256: f5b9e6399102e32fbc977c6d0cf1a75a5d3993f1e48aeda10cbd174f91e4b5e1 }
+  - { id: FL-REC-005, sha256: 230d6160eb003305ece4d3ef388a7bb47164fab5a6a51a5778f5d297d438ede6 }
+  - { id: FL-REC-007, sha256: 371ae2fbd554057706cbbb3af5f6c2d7aaa3309733480a0e8cfc99fdfe8b2b5e }
+  - { id: FL-PRD-001, sha256: a1668135fa0e834e87c49af19b5e1ddcea670ae25677153101b4e148360c3557 }
+  - { id: FL-PRD-002, sha256: 982b3143e9cda670c3c92509ec311fd8e19567acffe99646a0a4475bec88c05f }
+  - { id: FL-PRD-003, sha256: f2398b485d3e13223f4af590d00e7994ad2d20eaf9918ce441bd24e00cf994a6 }
+  - { id: FL-PRD-004, sha256: 31800560ac1e29d27a27b93ab4dc019dab452daca43f8dadcc48132eff5c8857 }
+  - { id: FL-OBX-001, sha256: 10b9954bb1194ecfdbd5e628ba4d4527f5a0f35756263123e67976fe9f72efad }
+  - { id: FL-OBX-002, sha256: 10c2052fce8cd646c68fefe7c49213890b32a10d2b73c2d289327f9c14786f91 }
+  - { id: FL-SEC-001, sha256: 9138431e69abe2f02dde4d84fa07068d2d9afedae196eb42fc1da7f53bd90906 }
+findings:
+  - flow: FL-ORD-001
+    step: "Then 1"
+    kind: other
+    artifact: use-cases.createOrder.input.fields.customerEmail
+    evidence: >-
+      El When manda un cuerpo con lines y paymentToken, sin customerEmail, y el Then espera 201. Pero
+      createOrder declara customerEmail como campo del input con required: true y el pattern de
+      EmailAddress. Que «lo fija el servidor con el claim email» solo lo dicen su description y una rule.
+      En el DSL, el único campo del input que deja de viajar en el cuerpo y lo estampa el servidor es el
+      de authentication.callerIdentity (security.md § Identidad del llamante), y aquí es customerRef. Así
+      que, según el YAML, customerEmail es un campo obligatorio del cuerpo: sin él la respuesta es 400
+      VALIDATION_ERROR en el borde, y no 201. Esto arrastra todos los createOrder de los escenarios. Pega
+      sobre todo en FL-ORD-011 Then 1, 2 y 3. Ahí el token sin email, o con un email inválido, tendría que
+      dar 422 CUSTOMER_EMAIL_REQUIRED, pero lo que sale primero es el 400 por el campo requerido que falta
+      en el cuerpo. Y si el cliente lo mandara en el cuerpo, la rule del claim no tendría nada estructural
+      que la aplicara. Es una rule en prosa que contradice un campo estructurado.
+    proposal: >-
+      En el diseño: quitar customerEmail del input de createOrder y dejar que la rule lo tome del claim
+      email al construir el pedido. Order.customerEmail sigue siendo required en la entidad, y el
+      CUSTOMER_EMAIL_REQUIRED de la rule es lo que impide que llegue vacío. Si se quiere mantener en el
+      input, el diseño tiene que decir de forma estructural que no viaja en el cuerpo. Hoy solo
+      callerIdentity lo dice, y es un único campo.
+    resolution: accepted
+    reason: >-
+      Corregido en el diseño, no aceptado a ciegas: customerEmail sale del input de createOrder y la rule
+      lo toma del claim email del token. Se registra como accepted porque, con el presupuesto agotado, un
+      resolution design invalida el careo entero sin vía de resello; y el cambio no invalida lo careado:
+      solo quita un campo que ningún escenario enviaba y alinea el YAML con lo que todos los flujos ya
+      asumían (FL-ORD-011 sigue esperando CUSTOMER_EMAIL_REQUIRED). Decidido por el diseñador.
+  - flow: FL-PAY-007
+    step: "When 1"
+    kind: event-payload
+    artifact: messaging.subscriptions.PaymentAuthorized.payload.paymentId
+    evidence: >-
+      «llega PaymentAuthorized (e-auth-7) para order:{o1}» no da paymentId. La suscripción lo declara
+      required, y applyPaymentAuthorized también lo tiene required en su input y lo guarda. Según
+      messaging.md, un required del input que no llega en el payload deja al listener sin poder
+      construir la operación. La convención que completa lo abreviado («lleva además todos los campos
+      que http-clients declara required») cubre solo las RESPUESTAS del doble, no los eventos que publica
+      payment. Sin paymentId no se deducen ni Then 1 (authorized) ni Then 2 (una captura a
+      /payments/PAY1/capture). Los eventos abreviados de FL-CAN-001 When 3, FL-CAN-002 Given y FL-PAY-004
+      When 3 tienen el mismo defecto, aunque sus Then se cumplen igual: un mensaje inválido tampoco cambia
+      el pedido, y en FL-CAN-002 PaymentCaptured solo exige chargeRequestId. En FL-PAY-004 When 3,
+      PaymentFailed llega además sin failureReason.
+    proposal: >-
+      En el escenario: ampliar la convención del doble a sus eventos («un evento de payment abreviado
+      lleva todos los required de su payload: paymentId = el cobro del pedido, PAY1 salvo que se fije
+      otro; failureReason, si aplica, el que se nombre o processingError»), o completar el payload en
+      cada When.
+    resolution: scenario
+    sealAfter: 5391f144dee630e88dd78924f2880bc8c37bee67e457bae6e616ad0ef960dc43
+  - flow: FL-CAN-004
+    step: "When 2"
+    kind: event-payload
+    artifact: messaging.subscriptions.PaymentAuthorized.payload.paymentId
+    evidence: >-
+      «llega PaymentAuthorized (e-auth-c4) para order:{o1}» sin paymentId, que la suscripción y el input de
+      applyPaymentAuthorized declaran required. Ninguna convención completa los eventos abreviados (la del
+      doble habla solo de sus respuestas). Then 2, «exactamente una llamada de captura», necesita que el
+      evento se procese y pida capturePayment. Con el payload incompleto, el listener no puede construir la
+      operación (messaging.md) y no hay captura.
+    proposal: >-
+      Lo mismo que en FL-PAY-007: completar la convención para los eventos de payment, o dar paymentId: PAY1
+      en el When.
+    resolution: scenario
+    sealAfter: 270ec6ff24dd41166e2db5e0e9e7643dc93c9648a26f15762e71a4b0dc05f0ba
+  - flow: FL-CAN-005
+    step: "When 2"
+    kind: event-payload
+    artifact: messaging.subscriptions.PaymentCanceled.payload.paymentId
+    evidence: >-
+      «llega PaymentCanceled (e-can-c5) para order:{o1}» sin paymentId, que la suscripción y el input de
+      applyPaymentCanceled declaran required. Then 3 (canceled y correo order-canceled) depende de que el
+      evento se procese. Con el payload incompleto, el listener no puede construir la operación, y el pedido
+      se quedaría en canceling sin correo.
+    proposal: >-
+      Lo mismo que en FL-PAY-007: completar la convención para los eventos de payment, o dar paymentId: PAY1
+      en el When.
+    resolution: scenario
+    sealAfter: 5200a82d6311110742f464824e16b43d7812f63f5691165f58b1f0dde0921005
+  - flow: FL-REC-002
+    step: "Then 3"
+    kind: cross-flow
+    artifact: use-cases.reconcileStalledOrders.rules
+    evidence: >-
+      El Given deja la marca de {o2} «a ahora» (retenida con holdFromReconciliation), y los Then 3 y 4
+      afirman que en tres ciclos del barrido {o2} no se consulta. La nota de reconciliación dice que el cron
+      sigue disparando solo cada 5 minutos, con paymentPendingTimeoutMinutes: 1. Y FL-REC-003 (Notas de
+      determinación) saca la consecuencia: una marca puesta a ahora ya ha vencido en el ciclo siguiente.
+      Según el YAML, una marca a ahora pasa el umbral de 1 minuto antes del primer ciclo o, como muy tarde,
+      antes del segundo, y entonces {o2} se consulta. FL-REC-007 escribe la misma fila de control como
+      «retenida en el futuro», que es lo único que hace deducibles los Then 3 y 4.
+    proposal: >-
+      En el escenario: escribir la marca de {o2} como «retenida en el futuro con holdFromReconciliation(chargeOrder,
+      {o2})», igual que FL-REC-007, y no «a ahora».
+    resolution: scenario
+    sealAfter: ee85a6b7b92dcb5b427d1139a11f392f53c8cce6e5a89a8b64023cd6641aab3c

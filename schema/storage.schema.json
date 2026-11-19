@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/2.0/storage.schema.json",
+  "title": "Keel Storage Layer",
+  "description": "Almacenamiento de archivos (object storage): buckets lógicos con sus políticas. Agnóstico del proveedor; MinIO/S3/GCS se decide al generar.",
+  "type": "object",
+  "required": ["buckets"],
+  "additionalProperties": false,
+  "properties": {
+    "buckets": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Buckets lógicos donde se guardan los archivos. Los campos file del domain los referencian por nombre.",
+      "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["allowedContentTypes"],
+        "additionalProperties": false,
+        "properties": {
+          "visibility": {
+            "type": "string",
+            "enum": ["private", "public"],
+            "default": "private",
+            "description": "private exige URLs firmadas o acceso mediado; public permite lectura directa."
+          },
+          "allowedContentTypes": {
+            "type": "array",
+            "description": "Tipos MIME permitidos (ej. image/png, application/pdf).",
+            "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$" },
+            "minItems": 1
+          },
+          "maxSizeMb": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Tamaño máximo por archivo en megabytes."
+          },
+          "signedUrlTtlSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Cuánto vale la URL firmada con la que se lee un objeto de este bucket. Es contrato con quien la recibe —cuánto tiempo tiene para descargar, y durante cuánto sirve si la reenvía a otro—, no un ajuste del proveedor: una ventana larga convierte el enlace en acceso permanente para quien lo comparta, y una corta rompe descargas legítimas. Solo válido con visibility private: en un bucket público no hay firma que caducar.",
+            "$comment": "Sin declararlo, la ventana la elige quien construye y no queda registrada en ninguna parte del diseño."
+          },
+          "description": { "type": "string" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "visibility": { "const": "public" } }, "required": ["visibility"] },
+            "then": { "not": { "required": ["signedUrlTtlSeconds"] } }
+          }
+        ]
+      }
+    }
+  }
+}

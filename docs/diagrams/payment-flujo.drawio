@@ -1,0 +1,32 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="payment-flujo" name="payment - flujo">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1480" pageHeight="520" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="&lt;b&gt;payment: ciclo de vida de un cobro&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=20;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="30" y="10" width="760" height="40" as="geometry"/></mxCell>
+        <mxCell id="p" value="pending" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="40" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="a" value="authorized" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="280" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="cp" value="capturing" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="520" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="c" value="captured" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="760" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="r" value="refunding" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="1000" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="rf" value="refunded" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="1240" y="100" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="ar" value="actionRequired" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="240" y="270" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="cg" value="canceling" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="520" y="270" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="cd" value="canceled" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="760" y="270" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="f" value="failed" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="40" y="380" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="note" value="Los estados en azul son «en vuelo»: se confirman antes de hablar con Stripe, así que una respuesta perdida&lt;br&gt;no provoca una acción repetida a ciegas. Si Stripe rechaza una captura, una anulación o una devolución,&lt;br&gt;el cobro vuelve al estado anterior. Toda la API es servidor a servidor." style="rounded=1;arcSize=6;dashed=1;align=left;spacingLeft=12;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="300" y="390" width="1070" height="90" as="geometry"/></mxCell>
+        <mxCell id="e2" value="Stripe autoriza" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="p" target="a"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e3" value="3DS" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="p" target="ar"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e4" value="Stripe rechaza" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="p" target="f"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e5" value="3DS completado" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="ar" target="a"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e6" value="capturar" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="a" target="cp"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e7" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="cp" target="c"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e8" value="devolver" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="c" target="r"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e9" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="r" target="rf"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e10" value="anular" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="a" target="cg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e11" value="anular" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="ar" target="cg"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e12" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="cg" target="cd"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

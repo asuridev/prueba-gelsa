@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": {
+    "keelCore": "0.7.0",
+    "dsl": [
+      "2.32"
+    ]
+  },
+  "designs": [
+    {
+      "slug": "notifications",
+      "family": "notifications",
+      "variant": null,
+      "service": {
+        "name": "notifications",
+        "version": "0.3.0",
+        "dsl": "2.32",
+        "domain": null,
+        "basedOn": "notifications@0.3.0",
+        "description": "Envía correo transaccional a partir de plantillas que gestiona negocio, a petición de los sistemas de la organización por HTTP o por eventos, sin enviar nunca dos veces el mismo correo."
+      },
+      "metadata": null,
+      "layers": [
+        "domain",
+        "use-cases",
+        "api",
+        "security",
+        "messaging",
+        "persistence",
+        "mail"
+      ],
+      "counts": {
+        "entities": 5,
+        "types": 12,
+        "aggregates": 4,
+        "operations": 22,
+        "commands": 12,
+        "queries": 10,
+        "endpoints": 20,
+        "roles": 4,
+        "serviceClients": 4,
+        "publishedEvents": 2,
+        "subscriptions": 1,
+        "persistedEntities": 5,
+        "mailSenders": 1
+      },
+      "status": {
+        "ok": true,
+        "pending": 0,
+        "errors": 0
+      },
+      "derivatives": {
+        "fresh": 9,
+        "stale": 0,
+        "unstamped": 0,
+        "missing": 0,
+        "orphan": 0,
+        "notApplicable": 0
+      },
+      "docs": {
+        "design": "docs/notifications/DESIGN.md",
+        "overview": "docs/notifications/overview.html",
+        "openapiViewer": "docs/notifications/openapi.html",
+        "asyncapiViewer": "docs/notifications/asyncapi.html",
+        "integration": "docs/notifications/INTEGRATION.md"
+      },
+      "files": [
+        "specs/notifications/service.keel.yaml",
+        "specs/notifications/domain.keel.yaml",
+        "specs/notifications/use-cases.keel.yaml",
+        "specs/notifications/api.keel.yaml",
+        "specs/notifications/security.keel.yaml",
+        "specs/notifications/messaging.keel.yaml",
+        "specs/notifications/persistence.keel.yaml",
+        "specs/notifications/mail.keel.yaml",
+        "specs/notifications/decisions.yaml",
+        "specs/notifications/review.yaml",
+        "specs/notifications/flow-review.yaml",
+        "specs/notifications/gaps.yaml",
+        "specs/notifications/validation-scenarios.md",
+        "docs/notifications/DESIGN.md",
+        "docs/notifications/openapi.yaml",
+        "docs/notifications/openapi.html",
+        "docs/notifications/asyncapi.yaml",
+        "docs/notifications/asyncapi.html",
+        "docs/notifications/postman/notifications-collection.json",
+        "docs/notifications/overview.html",
+        "docs/notifications/INTEGRATION.md",
+        "docs/notifications/postman/auth-collection.json"
+      ]
+    },
+    {
+      "slug": "order",
+      "family": "order",
+      "variant": null,
+      "service": {
+        "name": "order",
+        "version": "0.1.0",
+        "dsl": "2.32",
+        "domain": "commerce",
+        "basedOn": null,
+        "description": "Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications."
+      },
+      "metadata": null,
+      "layers": [
+        "domain",
+        "use-cases",
+        "api",
+        "security",
+        "messaging",
+        "http-clients",
+        "dependencies",
+        "persistence"
+      ],
+      "counts": {
+        "entities": 3,
+        "types": 9,
+        "aggregates": 2,
+        "operations": 13,
+        "commands": 11,
+        "queries": 2,
+        "endpoints": 4,
+        "roles": 0,
+        "serviceClients": 0,
+        "publishedEvents": 1,
+        "subscriptions": 8,
+        "httpClients": 1,
+        "dependencies": 3,
+        "persistedEntities": 3
+      },
+      "status": {
+        "ok": true,
+        "pending": 0,
+        "errors": 0
+      },
+      "derivatives": {
+        "fresh": 2,
+        "stale": 0,
+        "unstamped": 0,
+        "missing": 7,
+        "orphan": 0,
+        "notApplicable": 0
+      },
+      "docs": {
+        "design": "docs/order/DESIGN.md",
+        "overview": null,
+        "openapiViewer": null,
+        "asyncapiViewer": null,
+        "integration": null
+      },
+      "files": [
+        "specs/order/service.keel.yaml",
+        "specs/order/domain.keel.yaml",
+        "specs/order/use-cases.keel.yaml",
+        "specs/order/api.keel.yaml",
+        "specs/order/security.keel.yaml",
+        "specs/order/messaging.keel.yaml",
+        "specs/order/http-clients.keel.yaml",
+        "specs/order/dependencies.keel.yaml",
+        "specs/order/persistence.keel.yaml",
+        "specs/order/decisions.yaml",
+        "specs/order/review.yaml",
+        "specs/order/flow-review.yaml",
+        "specs/order/gaps.yaml",
+        "specs/order/validation-scenarios.md",
+        "docs/order/DESIGN.md"
+      ]
+    },
+    {
+      "slug": "payment",
+      "family": "payment",
+      "variant": null,
+      "service": {
+        "name": "payment",
+        "version": "0.1.4",
+        "dsl": "2.32",
+        "domain": "commerce",
+        "basedOn": "payment@0.1.4",
+        "description": "Cobra con tarjeta, a través de una pasarela intercambiable, los importes que le piden otros servidores — autorizar, capturar, anular y devolver —, y guarda medios de pago para cobrar sin el cliente presente."
+      },
+      "metadata": null,
+      "layers": [
+        "domain",
+        "use-cases",
+        "api",
+        "security",
+        "messaging",
+        "persistence",
+        "payments"
+      ],
+      "counts": {
+        "entities": 4,
+        "types": 9,
+        "aggregates": 2,
+        "operations": 18,
+        "commands": 14,
+        "queries": 4,
+        "endpoints": 11,
+        "roles": 0,
+        "serviceClients": 2,
+        "publishedEvents": 7,
+        "subscriptions": 0,
+        "persistedEntities": 4
+      },
+      "status": {
+        "ok": true,
+        "pending": 0,
+        "errors": 0
+      },
+      "derivatives": {
+        "fresh": 9,
+        "stale": 0,
+        "unstamped": 0,
+        "missing": 0,
+        "orphan": 0,
+        "notApplicable": 0
+      },
+      "docs": {
+        "design": "docs/payment/DESIGN.md",
+        "overview": "docs/payment/overview.html",
+        "openapiViewer": "docs/payment/openapi.html",
+        "asyncapiViewer": "docs/payment/asyncapi.html",
+        "integration": "docs/payment/INTEGRATION.md"
+      },
+      "files": [
+        "specs/payment/service.keel.yaml",
+        "specs/payment/domain.keel.yaml",
+        "specs/payment/use-cases.keel.yaml",
+        "specs/payment/api.keel.yaml",
+        "specs/payment/security.keel.yaml",
+        "specs/payment/messaging.keel.yaml",
+        "specs/payment/persistence.keel.yaml",
+        "specs/payment/payments.keel.yaml",
+        "specs/payment/decisions.yaml",
+        "specs/payment/review.yaml",
+        "specs/payment/flow-review.yaml",
+        "specs/payment/gaps.yaml",
+        "specs/payment/validation-scenarios.md",
+        "docs/payment/DESIGN.md",
+        "docs/payment/openapi.yaml",
+        "docs/payment/openapi.html",
+        "docs/payment/asyncapi.yaml",
+        "docs/payment/asyncapi.html",
+        "docs/payment/postman/payment-collection.json",
+        "docs/payment/overview.html",
+        "docs/payment/INTEGRATION.md",
+        "docs/payment/postman/auth-collection.json"
+      ]
+    }
+  ],
+  "families": [
+    {
+      "name": "notifications",
+      "designs": [
+        "notifications"
+      ]
+    },
+    {
+      "name": "order",
+      "designs": [
+        "order"
+      ]
+    },
+    {
+      "name": "payment",
+      "designs": [
+        "payment"
+      ]
+    }
+  ]
+}

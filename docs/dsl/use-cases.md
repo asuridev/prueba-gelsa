@@ -1,0 +1,325 @@
+# Capa `use-cases` — casos de uso (obligatoria)
+
+Archivo: `specs/<servicio>/use-cases.keel.yaml` · Schema: [`schema/use-cases.schema.json`](../../schema/use-cases.schema.json)
+
+Cada operación es un caso de uso completo: qué recibe, qué devuelve, qué reglas aplica, qué puede fallar y qué eventos emite. Aquí viven también las políticas que son **semántica del caso de uso** — idempotencia, caché, schedule y las transiciones del `lifecycle` que ejecuta — porque valen igual lo invoque REST o un evento.
+
+```yaml
+operations:
+  createProduct:
+    description: Da de alta un producto en estado draft.
+    kind: command
+    input:
+      fields:
+        sku:       { type: SKU, required: true }
+        name:      { type: string, required: true }
+        price:     { type: Money, required: true }
+        catalogId: { type: uuid }
+    output: { entity: Product }
+    idempotency: { keySource: client-key, ttlSeconds: 86400 }
+    rules:
+      - El sku se normaliza a mayúsculas antes de validar unicidad.
+      - Si se indica catalogId, el catálogo debe existir.
+    errors:
+      - { code: SKU_ALREADY_EXISTS, when: Ya existe un producto con ese sku., http: 409 }
+      - { code: CATALOG_NOT_FOUND, when: El catalogId indicado no existe., http: 422 }
+    emits: [ProductCreated]
+
+  getProduct:
+    description: Recupera un producto por su id.
+    kind: query
+    input:
+      fields:
+        id: { type: uuid, required: true }
+    output: { entity: Product }
+    cache: { ttlSeconds: 300, keyFields: [id], invalidatedBy: [ProductRetired] }
+    errors:
+      - { code: PRODUCT_NOT_FOUND, when: No existe producto con ese id., http: 404 }
+
+  getProductsByIds:
+    description: Resuelve varios productos por sus identificadores en una sola llamada.
+    kind: query
+    input:
+      fields:
+        ids: { type: uuid, list: true, required: true, constraints: { minItems: 1, maxItems: 100 } }
+    output: { entity: Product, list: true }
+    rules:
+      - Los identificadores inexistentes se omiten del resultado, en el mismo orden que la petición.
+
+  reconcilePrices:
+    description: Reconcilia precios contra el servicio de pricing cada noche.
+    kind: command
+    input: "void"
+    output: "void"
+    schedule: { cron: "0 3 * * *" }
+```
+
+## Campos
+
+- `kind`: `command` (muta estado) o `query` (solo lee). Default `command`.
+- `input`/`output` admiten tres formas: `"void"`, `{ fields: {...} }`, o `{ entity: Product }` con opcionales `list`, `paginated`, `exclude: [...]`, `embed: [...]`, `sort: [...]` y, en un `output` paginado, `sortable: [...]`.
+- Un campo de un payload `{ fields: {...} }` puede ser una **colección** con `list: true`, y acotarla con `constraints: { minItems, maxItems }` (la cardinalidad de la colección, no del elemento). Es la forma correcta de declarar una entrada por lotes — nunca `type: json` con la cota escrita en prosa. `required: true` sobre un campo `list` significa "presente y no vacío".
+- **Una cota se declara en un solo sitio.** Lo que va en `constraints` (o en `required`) lo hace cumplir la validación de forma del generador, que responde con un error genérico de petición mal formada, **sin** `code` de negocio. Si el diseño quiere que esa cota falle con un `code` propio y estable —`EMPTY_ID_LIST`, `TOO_MANY_IDS`—, la cota va como `preconditions` en prosa y **no** como `constraints`: declarar las dos cosas deja el `code` inalcanzable, porque la validación de forma corre antes.
+- En un `input` con forma `{ entity: X }`, los campos `generated` y `computed` de la entidad quedan implícitamente fuera: nunca los envía el cliente.
+- **Cuándo el cuerpo HTTP es obligatorio: lo decide `required`, y no se declara aparte.** Si ningún campo del `input` que viaja en el cuerpo es `required`, el cuerpo **entero** es opcional: una petición sin cuerpo es válida y no puede responder 400 (`retireProduct` con un único `reason` opcional se acepta sin cuerpo). Basta un campo `required: true` para que el cuerpo lo sea. Es derivable, así que no hay nada que declarar — pero sí que **escribir en el escenario**: el `When` dice si manda cuerpo o no, y dejarlo al criterio de quien escribe la prueba fue uno de los huecos que reportó la corrida `catalog`.
+- **Un `input: { fields: … }` NO hereda del dominio.** `{ entity: X }` sí: toma los campos de la entidad con sus `constraints`. Con `fields` el nodo se toma tal cual, así que redeclarar `subject: { type: string, required: true }` cuando `Template.subject` declara `maxLength: 200` deja la entrada **sin esa cota** — y con un campo `list`, redeclarar el tipo pierde además el `maxItems` y el value type entero. No es un defecto: el input y el almacén son **contratos distintos**, y una operación puede aceptar a propósito algo distinto de lo que guarda. Lo que no puede es que la diferencia sea invisible, porque el precio se paga lejos: sin la cota en el input, la violación no se descubre como **400 en el borde** sino como **conflicto de integridad al escribir**, y el `code` que recibe el cliente no es el que el diseño declaró. Por eso `keel validate` **avisa** cuando un campo del input se llama igual que un campo acotado del dominio y no declara cota: se cierra declarándola (o dándole el value type que ya la lleva), no aceptándola por escrito. Y no se hereda por nombre a propósito: eso sería inventar un enlace que el diseño no declara.
+- En los outputs y eventos, los campos `sensitive` de la entidad quedan excluidos por defecto; `exclude` recorta además campos concretos de esa operación (`keel validate` comprueba que existen en la entidad). Para exponer un campo sensible hay que declararlo explícitamente con la forma `{ fields: {...} }`.
+- **Una colección sin elementos viaja como `[]`**, sea una relación a-muchos o un campo `list`: nunca `null` ni ausente, también con `conventions.nulls: omit` en el manifiesto —una colección vacía no es un valor ausente (`wire-contract.md` § Listas)—. Un escenario que afirme el cuerpo completo de un recurso recién creado escribe `"lines": []`.
+- **El DTO de una entidad hija lleva SIEMPRE el id de su raíz** (`<raíz>Id`), aunque la proyección declarada no lo enumere: es el mismo tipo cuando la hija se devuelve suelta —donde el id del padre es imprescindible— que cuando va anidada, y partirlo en dos formas haría que el mismo objeto tuviera dos contratos según por dónde salga. Anidado es una redundancia, no una fuga: el padre ya está ahí. Un `exclude` con dot-path sobre la relación (`exclude: [images.productId]`) **no** lo quita, y el generador lo avisa en vez de obedecer en silencio.
+- `exclude` admite **dot-paths** para no exponer un campo de una **entidad hija** o de un **value object** anidado (`output: { entity: Order, exclude: [internalNote, lines.costPrice, address.zip] }`). Cada segmento intermedio debe ser una relación (entidad hija) o un value object compuesto; el último, un campo o relación de la entidad/tipo alcanzado. Un dot-path que cruza a otro agregado (relación serializada por id, sin anidamiento) es un warning: no hay nada anidado que excluir. Si esa relación **sí** está en `embed`, el dot-path recorta el agregado embebido en ESTA proyección (`exclude: [brand.createdAt]`), y las demás operaciones que lo embeben siguen viéndolo entero. Por eso `keel validate` avisa (`CHK-USECASES-EXCLUDE-EMBED-LEAK`) cuando un campo que se recorta en toda proyección que lo incluye viaja anidado en otra: si no es para el cliente, el recorte no protege nada mientras otra respuesta lo deja pasar. Si en esa respuesta sí lo es, se acepta en `decisions.yaml`. Los campos `sensitive` no cuentan: salen de toda proyección, también anidada.
+- `embed` (solo en `output`) proyecta una relación hacia **otro agregado** como objeto anidado en vez de como `<relación>Id`: `output: { entity: Product, embed: [category] }` devuelve `"category": { … }` en lugar de `"categoryId": "…"`. Es la forma de declarar que el consumidor necesita la referencia resuelta y no un id que le obligue a una segunda llamada. Reglas: el destino debe ser la **raíz** de un agregado (una entidad hija ya se proyecta anidada por defecto) y la relación `many-to-one`/`one-to-one`; la auto-referencia es válida (`Category.parent → Category`: apunta a otra instancia, que es su propio agregado). El objeto embebido lleva los campos propios del agregado referenciado **sin sus relaciones**: la proyección se corta a profundidad 1 y no encadena agregado tras agregado.
+  - **Coherencia entre operaciones**: `keel validate` avisa cuando unas operaciones que devuelven la misma entidad resuelven una referencia con `embed` y otras la dejan como `<relación>Id` plano. No es un error —proyectar más liviano en un listado que en el detalle es una decisión legítima— pero tiene que ser una decisión: el caso típico es un `getX` con `embed` y un `listX` al que se le olvidó, y el consumidor del listado se queda con un id que le obliga a una segunda llamada. Un `exclude` de esa misma relación no cuenta como asimetría: dejarla fuera del payload es explícito.
+- `sort` (solo en `output`, y solo con `list` o `paginated`) declara el **orden por defecto** de la salida: `output: { entity: Product, paginated: true, sort: [name:asc, createdAt:desc] }`. La dirección es opcional (`asc` por defecto), así que `sort: [name]` es válido.
+  - Es **contrato**, no una preferencia de implementación: es lo que recibe quien no pide un orden concreto. Un cliente puede seguir pidiendo otro orden si la API lo permite, igual que `pagination.maxSize` acota el tamaño que pide; lo que no puede es quedarse sin orden.
+  - **El id del agregado se añade siempre como último criterio de desempate**, se declare `sort` o no. Sin él, dos páginas consecutivas de la misma consulta pueden repetir u omitir filas: la base de datos no garantiza un orden estable entre consultas cuando el `ORDER BY` empata. Por eso un listado sin `sort` no queda sin orden — queda ordenado por id.
+  - **No declararlo avisa.** `keel validate` avisa de toda salida `list`/`paginated` sin `sort`. No es un error: aceptar el orden por id es una decisión legítima. Pero tiene que ser una **decisión**, y el default correcto es justo lo que la esconde — nada se rompe y nada se nota hasta que alguien afirma otro orden en un sitio donde ningún schema lo contrasta (la prosa de `validation-scenarios.md`, o el adaptador que el generador improvisa porque tiene que escribir algo). Es el mismo razonamiento que la coherencia de `embed`: el aviso no persigue una errata, persigue una decisión sin tomar.
+  - Un **dot-path** ordena por un campo de otro agregado (`sort: [brand.name:asc]`) y **exige que esa relación esté en `embed`** del mismo payload: ordenar por algo que la respuesta no devuelve deja al consumidor sin poder explicarse el orden que recibe. También admite un subcampo de un value object compuesto (`total.amount`). La profundidad se corta en 1, igual que `embed`.
+  - No se puede ordenar por una colección (`list: true`): no define un orden por columna.
+- `sortable` (2.32, solo en un `output` con `paginated: true`) dice por qué campos puede **ordenar el cliente** con `?sort=campo,asc|desc`: `output: { entity: Product, paginated: true, sort: [name:asc], sortable: [name, price.amount] }`.
+  - Es **contrato**, como `sort`. Una propiedad fuera de la lista, o una dirección que no sea `asc`/`desc`, es **400**. **Sin `sortable` el listado no ofrece `sort`**: el contrato formal no lo anuncia y todo `?sort=` es 400. Hasta 2.31 los cuatro generadores aceptaban `?sort=` sobre cualquier propiedad persistida —también una `sensitive` o la sombra plegada de un texto— y respondían 500 a una que no existía: un contrato que nadie había decidido.
+  - Valen los campos escalares de la entidad de la salida y los subcampos de sus value objects (`price.amount`). No valen un campo `sensitive` ni `personal` —ordenar por él, página a página, revela su valor—, una relación ni un campo de otro agregado (necesitaría un join que el finder no tiene), ni una lista (`CHK-USECASES-SORTABLE-FIELD`). El id se añade siempre como desempate.
+  - El texto se ordena **por punto de código**, igual en los tres motores: toda columna de texto ordenable lleva la collation binaria (`utf8mb4_bin` en MySQL, `"C"` en PostgreSQL), la misma que la unicidad. `a` va detrás de `Z`, y `á` detrás de `z`. Medido en B0 de `PLAN-DSL-231-232-INVARIANTES-Y-BUSQUEDA.md`: con la collation por defecto, MySQL empataba `a`, `A` y `á`.
+  - Si el orden por defecto (`sort`) no está en `sortable`, el cliente recibe ese orden pero no puede volver a pedirlo: `keel validate` lo avisa (`CHK-USECASES-SORT-NOT-SORTABLE`) y se acepta en `decisions.yaml` si es deliberado.
+  - Un listado paginado con endpoint para **personas** (`audience: users` o `both`) sin `sortable` abre `OBL-QUERY-SORT-UNDECIDED`: quitarle a una pantalla el orden de sus columnas es una decisión. Se cierra declarando `sortable` o aceptándola en `decisions.yaml` con su motivo. Un listado para servicios (`audience: services`) no la abre: un consumidor máquina pide el orden del diseño.
+- Un **filtro de texto** en el `input` de una query declara cómo casa: `match` (`exact` por defecto, `contains` o `prefix`) y `compare` (`exact`, `ignore-case`, `ignore-case-accents`). `name: { type: string, match: contains, compare: ignore-case-accents }` es «coincidencia parcial ignorando mayúsculas y acentos» — escrito donde el generador lo ve, en vez de en una `rule`. `match` solo vale en el input de una query; `compare` y `match` solo sobre texto.
+- **Qué filtra cada input de una query** (2.22). Un input que se llama como un campo de la entidad de la salida —o como `<relación>Id` de una relación a otra raíz— es su filtro de igualdad, con su `match`/`compare` si es texto: `categoryId: { type: uuid }` es «de esa categoría», sin declarar nada más. Cuando el nombre no basta, `filter` lo dice: `minPrice: { type: decimal, filter: { field: price.amount, op: gte } }` es «`price.amount` mayor o igual que `minPrice`». `field` es un campo de la entidad, un subcampo de uno de sus value objects o una relación por su nombre; `op` es `eq`, `ne`, `in`, `gt`, `gte`, `lt` o `lte`, y los de orden solo valen sobre números e instantes. Un filtro sin valor no restringe: los inputs opcionales ausentes no filtran.
+  - `op: in` (2.32) es «igual a uno de estos»: `statuses: { type: ProductStatus, list: true, filter: { field: status, op: in } }`. El input es una **lista** del tipo del campo (`CHK-USECASES-FILTER-IN-NOT-LIST`); una lista con otro operador es `CHK-USECASES-FILTER-TYPE`. La lista ausente no filtra; la lista **vacía** es 400, porque «ninguno» nunca es lo que se quiere pedir. Sobre texto pliega cada valor con el `compare` del input y solo admite `match: exact`.
+  - `op: ne` (2.32) es «distinto de», y una fila con el campo **nulo o ausente también es distinta**: es la semántica de MongoDB, y en SQL se escribe `IS DISTINCT FROM` o su equivalente. Sin `match` ni `compare`: es la desigualdad exacta.
+  - Una lista en la query viaja como **parámetro repetido** (`?statuses=active&statuses=draft`); un único parámetro con comas también se parte (`?statuses=active,draft`), como hace Spring, así que un valor que contenga una coma solo viaja repitiendo el parámetro (`wire-contract.md` § Entrada).
+  - `search` (2.32) es la **búsqueda libre**: un input de texto que casa si casa con **alguno** de los campos de `over`, todos con el mismo `match` (`contains` por defecto) y el mismo `compare`: `q: { type: string, search: { over: [name, description], match: contains, compare: ignore-case-accents } }`. Los campos son texto de la entidad o subcampos de texto de sus value objects (`CHK-USECASES-SEARCH-FIELD`). Es un OR de comparaciones de texto sobre la sombra plegada de cada campo, determinista en los tres motores: sin índice de texto completo y sin relevancia. Un input con `search` no lleva `filter`, `match` ni `compare` propios (el schema lo rechaza).
+  - `where` (en la operación, no en el input) declara las igualdades **fijas** de la query: `where: { status: active }` es «solo las activas», y `where: { active: true }`, «solo las marcas activas». Es la forma estructural de una regla «solo devuelve…».
+  - **Con todos los inputs de una query enlazados** —por nombre o con `filter`— y la salida `list` o `paginated` sobre una raíz persistida, el generador emite su **finder** en el puerto del repositorio y en su adaptador, con los filtros del input, los de `where` y el orden de `sort`. Si queda un input sin enlazar (una lista de ids que no filtra con `in`, un texto cuya regla vive en prosa), no hay finder y el handler lo dice: nunca uno a medias. Una `rule` que restrinja algo más de lo declarado no la aplica el finder: si es contrato, va en `filter` o `where`.
+  - `keel validate` comprueba que la ruta existe (`CHK-USECASES-FILTER-FIELD-UNKNOWN`), que el operador y el valor casan con su tipo (`CHK-USECASES-FILTER-TYPE`) y que `filter`, `search` y `where` solo aparecen en queries (`CHK-USECASES-FILTER-OUTSIDE-QUERY`).
+- `preconditions` son sobre el estado del mundo; `rules` describen el comportamiento en orden.
+- Cada `error` tiene un `code` estable (contrato con integradores), su condición `when` y opcionalmente el status `http`.
+- `emits`: eventos publicados — deben existir en `messaging: publishing.events`. Es la única referencia hacia delante permitida: mientras la capa messaging no esté diseñada, `keel validate --wip` la reporta como pendiente (aviso); sin `--wip` es error.
+
+## Políticas del caso de uso
+
+- `idempotency: { keySource: client-key | payload-hash | payload-field, keyField, storedIn, ttlSeconds, partitionBy }` — que **repetir la petición** no produzca efectos duplicados. `keySource` dice de dónde sale la clave, y eso decide por qué puertas sirve:
+
+  - **`client-key`** — la manda el cliente en la cabecera `Idempotency-Key`. Solo entra por la superficie HTTP, así que **solo tiene sentido en una operación con endpoint**; y si esa operación además la dispara una suscripción, es **error**: el broker no manda cabeceras, así que la mitad de las entradas se ejecutaría sin deduplicar.
+  - **`payload-hash`** — se deriva del contenido de la petición. Tampoco viaja por transporte, pero hace indistinguibles dos peticiones legítimamente idénticas (el mismo aviso enviado dos veces a propósito).
+  - **`payload-field`** — la clave **es un campo del contrato**, el que nombra `keyField`. Es la única que llega por igual desde HTTP y desde el canal de eventos, y por tanto la única que cubre una operación con dos disparadores. Se nombra el campo en vez de adivinarlo: cuál identifica la petición es del diseño.
+
+  Con `payload-field` hay además una consecuencia que el diseño no declara sino que **provoca**: si ese campo participa en la `naturalKey` del agregado que la operación escribe, esa constraint ya es la guarda —permanente y común a todas las puertas—, y el generador no emite ningún registro de claves. Es la salida que antes existía pero el DSL no veía.
+
+  «Participa» se decide **por nombre**: `keyField` tiene que ser literalmente un campo de la `naturalKey`. Un input `callerSubject` frente a una `naturalKey: [subject]` no casa aunque una `rule` diga que uno se copia en el otro, y la guarda pasa a ser un almacén de claves que caduca y compara la firma del contenido —de modo que repetir la petición con otro valor en un campo que no es la clave sale como reutilización de la clave—. `keel validate` lo pregunta (`CHK-USECASES-IDEM-KEYFIELD-NOT-NATURAL`): si la guarda que querías es la constraint, nombra en `keyField` el campo que la lleva o quita el bloque y deja que la `naturalKey` la dé sola; si querías el almacén, acéptalo en `decisions.yaml`.
+
+  **Cuando la clave acaba en un campo que se llama de otra forma (`storedIn`, DSL 2.24).** A veces renombrar no es una salida: el campo de la `naturalKey` lo comparte otra puerta, o la clave del input no es el valor tal cual sino su materia prima. En `notification-mailer`, `Notification` lleva `naturalKey: [applicationKey, dedupeKey]`; por HTTP `dedupeKey` es la `Idempotency-Key`, y por evento una `rule` lo deriva del `eventId` (`event:<eventId>`). `storedIn` nombra ese campo: `idempotency: { keySource: payload-field, keyField: eventId, storedIn: dedupeKey }`. Con él la guarda es la constraint, igual que si se llamaran igual, y el generador no emite registro de claves ni los códigos de carrera y reutilización (así que tampoco se piden: `OBL-IDEM-RACE-CODE` y `OBL-IDEM-REUSE-CODE` no cuentan esa operación). La transformación no se declara: la sigue diciendo la `rule`, y la búsqueda por clave natural la escribe el handler desde ella; lo que el DSL necesitaba saber es que la guarda **existe**. `storedIn` tiene que ser un campo de la entidad que la operación escribe (`CHK-USECASES-IDEM-STOREDIN-UNKNOWN`) y participar en su `naturalKey` (`CHK-USECASES-IDEM-STOREDIN-NOT-NATURAL`): un enlace que no lleva a ninguna guarda es una incoherencia, no una pregunta.
+
+  Importa sobre todo en una operación que dispara una **suscripción**: con guarda de dominio el listener procesa y registra el mensaje **después** (`alreadyProcessed` + `record`), y un fallo pasajero del handler se reintenta; sin ella lo reclama **antes** (`tryRecord`), y el reintento lo ve como procesado y no hace nada.
+
+  **El ámbito de la clave (`partitionBy`, DSL 2.17).** Sin él, la clave es **global por operación**: dos llamantes que elijan la misma `Idempotency-Key` se ven, y el segundo recibe el 409 de reutilización —o, con la misma firma, la respuesta del primero—. `partitionBy: [applicationKey]` la acota con campos del input, y lo normal es la identidad del llamante (`callerIdentity.field`), que el servidor estampa: cada sistema tiene su propio espacio de claves. Vale con `client-key` y `payload-hash`; con `payload-field` la guarda es otra y el schema lo rechaza. El generador emite el ámbito ya compuesto (`idempotencyScope()` en el comando), así que no hay que componerlo a mano. `keel validate` lo pregunta (`CHK-USECASES-IDEM-SCOPE-UNDECIDED`) con `client-key` en un servicio que distingue llamantes: global puede ser lo correcto, pero tiene que decirlo alguien.
+
+  Lo que sigue valiendo para las tres: declararla en una operación interna o disparada por evento con `client-key` es error en `keel validate`, porque la clave llega por una puerta que esa operación no tiene. Declararla no la hace obligatoria: sin cabecera el generador ejecuta la operación **sin deduplicar**, porque rechazarla exigiría un `code` público y este campo no lo declara. Si el contrato es que sea obligatoria, decláralo como un error más de la operación (`{ code: IDEMPOTENCY_KEY_REQUIRED, when: …, http: 400 }`): `errors` es el único sitio donde nace un `code` **de negocio**.
+
+  **Los dos conflictos del mecanismo, en cambio, ya tienen nombre.** Encender `idempotency` trae consigo dos desenlaces que el cliente ve y que no los provoca la lógica de la operación sino el propio mecanismo: dos peticiones con la misma clave **a la vez** (`409 IDEMPOTENCY_KEY_IN_PROGRESS`) y la misma clave con un contenido **distinto** (`409 IDEMPOTENCY_KEY_REUSED`). Los pone el generador con el código canónico de `framework-errors.md`, así que no hay que declararlos ni hay que inventarlos — antes de que ese catálogo existiera, cada generación elegía el suyo y el mismo diseño producía contratos públicos distintos. Si el contrato de tu servicio los nombra de otra manera, decláralos en `errors` con un `code` de su familia y el mismo status: el generador usa el tuyo. `keel validate` avisa —sin exigir nada— cuando la operación no los nombra, para que el contrato se vea en el diseño y no solo en el código generado.
+
+  **No confundir con la reentrega de un evento**, que es el otro eje de repetición y tiene su propio mecanismo: un mensaje que el broker entrega dos veces se ataja con `contract.messageId` en `messaging: subscriptions` (o con una `transitions` irrepetible). Son dos cosas distintas hasta en el código generado —dos tablas, `idempotency_record` y `processed_event`—, y `idempotency` no protege la segunda.
+
+  **Ni con el reintento que hacemos nosotros**, que es el tercero: cuando esta operación encarga trabajo a otro servicio y ese canal reintenta, quien duplica el efecto somos nosotros al otro lado. Eso se declara en `http-clients.calls.<c>.idempotency`, y `keel validate` avisa de un `retry` sobre una escritura ajena que no lo declare.
+
+  **Cuándo la echa de menos `keel validate`.** No en todo command expuesto: en el que repetirlo saca el efecto **fuera del proceso**. Un command `POST` o `PATCH` que `emits` un evento o que encarga trabajo a un proveedor (`triggeredBy` de alguna activación), sin `idempotency` y sin una transición irrepetible, es aviso — un reenvío del llamante publica dos veces o pide dos veces el trabajo, y eso ya salió del servicio: ninguna clave natural de `persistence` lo desanda. `PUT` y `DELETE` quedan fuera porque el propio protocolo los define idempotentes, y un efecto que no sale del proceso también, porque ahí una clave natural sí es una salida legítima que el DSL no puede ver.
+
+  **`ttlSeconds` no se contrasta con nada** (límite declarado de la validación mecánica). Es cuánto tiempo se recuerda una clave, y nada del DSL dice cuánto tarda un cliente en reintentar, así que ninguna regla puede juzgar si el plazo da de sí. El criterio es de negocio: tiene que cubrir con holgura la ventana de reintento del llamante más lento — un móvil que recupera cobertura, un job nocturno que reencola lo que falló.
+
+  **Qué se reproduce en la repetición.** El contrato no es rechazar el duplicado sino devolver la respuesta original, y lo que se guarda de la primera ejecución es el id del recurso creado. Con eso se reconstruye la ficha de una entidad; una **lista** o una **página**, no: dependen del estado del resto del sistema al responder, y para la segunda llamada ya cambió. `keel validate` lo avisa.
+- `cache: { ttlSeconds, keyFields, invalidatedBy: [Evento, ...] }` — solo para queries; `invalidatedBy` referencia eventos de messaging. Si el `output` declara `embed`, la caché proyecta **otro agregado** dentro de la respuesta y ese agregado también tiene que poder invalidarla: `keel validate` da **error** si ningún evento de la entidad embebida está en `invalidatedBy` (y avisa de los eventos de la entidad principal que falten). Sin esa regla, un cambio en la marca embebida en la ficha de producto no se ve hasta que expira el TTL, y nada en el diseño lo delata.
+- `schedule: { cron }` — trigger temporal, único trigger que se declara aquí.
+- `batch: { over, atomicity, itemErrors, execution, output }` — la operación recibe un **lote** y responde por elemento (2.30). Ver § Lotes.
+- `transitions: [{ entity, from: [estado, ...], to: estado }]` — las transiciones del `lifecycle` de `domain` que **esta** operación ejecuta. Solo en commands.
+
+### `transitions` — qué mueve la operación en la máquina de estados
+
+```yaml
+retireProduct:
+  kind: command
+  transitions:
+    - entity: Product
+      from: [active]
+      to: retired
+```
+
+Es el **único enlace del DSL** entre un caso de uso y el `lifecycle` de una entidad, que hasta ahora solo existía en prosa (`rules`). Y no es documentación: el generador deriva del `lifecycle` un guard que rechaza cualquier cambio de estado no declarado, así que una operación que necesita una arista que la máquina de estados no tiene **no falla al generar — falla en cada ejecución**. `keel validate` da error si la entidad no existe, si no declara `lifecycle`, si algún estado no es valor del enum, o si la transición `from` → `to` no está en `domain: <entidad>.lifecycle.transitions`. La inversa es aviso: una transición declarada en `domain` que ninguna operación ejecuta no es contrato, es intención.
+
+**`stalledAfter` — cuándo se da por abandonada una fila en vuelo (2.18).** En un barrido (operación con `schedule`) que saca a la entidad de un estado al que otra transición la llevó —un estado EN VUELO, como `sending` o `running`—, el generador rescata las filas que una réplica dejó a medias, y para no arrancarle el trabajo a quien lo está haciendo necesita un plazo. Por defecto ese plazo es suyo: es la caducidad de un reclamo, mecánica. Pero cuando expirar tiene consecuencia de **negocio** —el envío se da por fallido y no se reintenta—, el plazo es una decisión del diseño, y se enlaza a un parámetro del servicio:
+
+```yaml
+# service.keel.yaml
+parameters:
+  sendingTimeoutMinutes: { type: int, description: "…", constraints: { min: 1 }, default: 15, testValue: 15 }
+
+# use-cases.keel.yaml
+transitions:
+  - entity: EmailMessage
+    from: [sending]
+    to: failed
+    stalledAfter: { parameter: sendingTimeoutMinutes, unit: minutes }
+```
+
+`unit` es `seconds`, `minutes` o `hours`. `keel validate` da error (`CHK-USECASES-STALLED-AFTER-INVALID`) si el parámetro no existe, si no es `int` o si la operación no es un barrido. Sin el enlace, un parámetro que la prosa llama «el plazo del rescate» no lo lee nadie: el servicio acaba con dos plazos, y solo uno es el del diseño.
+
+`from` es una lista porque un mismo command puede aplicarse desde varios orígenes (`[pending, reserved] → cancelled`). No se declaran las transiciones de **creación**: el estado inicial es el `default` del campo enum, no una arista.
+
+Hay un segundo efecto, y es el que importa en una **compensación**: una transición cuyo `to` **no** está entre sus propios `from` es irrepetible por construcción — al segundo intento la entidad ya está en el destino y el guard lo rechaza. Por eso vale como uno de los dos mecanismos con los que una compensación demuestra que no se puede aplicar dos veces (el otro es `contract.messageId` en la suscripción; `idempotency` **no** sirve para eso, ver abajo).
+
+`idempotency` y `cache` son **decisiones estructurales**: fijan lo que el servicio garantiza (qué se puede repetir sin daño, qué puede llegar rancio), así que las decide el diseñador y no el agente. El agente recomienda con su porqué y pregunta; nunca las escribe en silencio. Ejes de decisión, consecuencias observables y trampas: `references/structural-decisions.md` de la skill `keel-design` §3.2 y §3.3.
+
+**El historial de una raíz (2.29).** Una query con `output: { history: <Raíz>, paginated: true }` devuelve el historial de cambios de una raíz que lo guarda (`persistence.audit.history`, `CHK-USECASES-HISTORY-UNKNOWN`): una página de entradas, la más reciente primero, con la forma que fija `wire-contract.md` § Historial. Siempre es una query y siempre paginada (`CHK-USECASES-HISTORY-SHAPE`). Los campos de su `input` que declaran **`historyFilter`** filtran las entradas: `field` (string, la ruta entera de un campo o el campo de la raíz que la contiene: `price` casa `price.amount`), `from` y `to` (timestamp, extremos incluidos), cada uno a lo sumo una vez y en ningún otro sitio (`CHK-USECASES-HISTORY-FILTER`). Los demás campos del input **localizan la raíz**, igual que en su lectura por id, y leer el historial pasa por esa misma lectura: una raíz que no existe, que está borrada o que el llamante no puede ver responde el mismo error. Por eso, si la lectura por id va acotada (`reads` de `scoping` u `ownership`), la del historial también (`CHK-SECURITY-HISTORY-UNSCOPED`).
+
+```yaml
+getMyCardHistory:
+  kind: query
+  input:
+    fields:
+      callerSubject: { type: string, required: true }
+      field: { type: string, historyFilter: field }
+      from:  { type: timestamp, historyFilter: from }
+      to:    { type: timestamp, historyFilter: to }
+  output: { history: ContactCard, paginated: true }
+  errors:
+    - { code: CARD_NOT_FOUND, when: El titular no tiene ficha viva., http: 404 }
+```
+
+**`restores` — una operación que deshace un borrado (2.28).** Un command con `restores: <Raíz>` deshace el borrado lógico de esa raíz dentro de su ventana (`persistence.entities.<Raíz>.restorableFor`), y los dos van siempre juntos. Con él, el puerto del repositorio gana la restauración: dentro de la ventana la fila vuelve a estar viva; fuera, el `error` de `restorableFor`, que esta operación declara; con su clave ocupada por una fila viva, el 409 de esa unicidad. Ver `persistence.md` § El ciclo de vida del dato.
+
+## Lotes (2.30)
+
+«Importo 500 productos y fallan 3»: sin `batch`, una operación con una lista en el input falla entera o termina
+entera, y responder por elemento obliga a inventar en `fields` una lista de resultados con un `code` fuera del catálogo
+de errores. Con `batch`, la operación se ejecuta **una vez por elemento** del campo que nombra `over`, y la respuesta
+dice qué pasó con cada uno.
+
+```yaml
+importProducts:
+  kind: command
+  input:
+    fields:
+      items: { type: ProductDraft, list: true, required: true, constraints: { maxItems: 500 } }
+  output: void
+  errors:
+    - { code: SKU_ALREADY_EXISTS, when: Ya existe un producto con ese SKU., http: 409 }
+    - { code: CATALOG_LOCKED, when: El catálogo está bloqueado por un cierre., http: 409 }
+  batch:
+    over: items                       # el campo list del input que se recorre
+    atomicity: per-item               # all-or-nothing | per-item
+    itemErrors: [SKU_ALREADY_EXISTS]  # fallan SOLO su elemento; CATALOG_LOCKED detiene el lote
+    output: { fields: { productId: { type: uuid } } }   # lo que devuelve cada elemento con éxito
+```
+
+- **`over`** nombra un campo `list: true` del input cuyo elemento es un value type con campos (`domain.types.<T>.fields`):
+  es lo que se valida y se procesa elemento a elemento (`CHK-USECASES-BATCH-OVER`). Los demás campos del input son
+  comunes a todo el lote.
+- **`atomicity`** no tiene default, porque es lo primero que el cliente lee del contrato
+  (`OBL-BATCH-ATOMICITY-UNDECIDED`, no se puede aceptar). Con **`per-item`** cada elemento va en su propia
+  transacción, en orden de índice: lo que falla no deshace lo anterior, y la respuesta es **siempre `207`**, también si
+  todo salió bien. Con **`all-or-nothing`** todos van en una: el primer fallo la revierte entera y la respuesta es el
+  error de ese elemento con su ruta en `details` (`items[7]`); sin fallos, el mismo cuerpo que el 207 con el
+  `successStatus` del endpoint. Dos elementos con la misma clave natural en un lote fallan siempre en el segundo.
+- **`itemErrors`** (solo con `per-item`) elige cuáles de los `errors` de la operación fallan **solo su elemento**, y el
+  lote sigue (`CHK-USECASES-BATCH-ITEM-ERRORS`). Un elemento que no cumple sus cotas o su formato falla también solo él,
+  con `VALIDATION_ERROR`: no es un 400 del lote. **Cualquier otro fallo detiene el lote**: ese elemento sale `failed`
+  con su `code` (o `BATCH_ABORTED` si no tiene: infraestructura, un defecto), lo anterior queda confirmado y lo
+  siguiente sale `notAttempted`, que es lo que el cliente tiene que reenviar. La pregunta que decide la lista: ¿el
+  error depende solo del elemento o del estado común a todos? (`REV-BATCH-ITEM-ERRORS`).
+- **`maxItems`** en el campo `over` es obligatorio, y con `execution: sync` no pasa de 1000
+  (`CHK-USECASES-BATCH-UNBOUNDED`): un 207 de 50 000 elementos es un *timeout*. Exceder el tope, o no mandar el campo, es
+  un 400 del lote entero sin procesar nada.
+- **`output`** de la operación es `void` (`CHK-USECASES-BATCH-OUTPUT`): la forma de la respuesta la fija
+  `wire-contract.md` § Lotes. Lo que devuelve cada elemento con éxito va en `batch.output`, y aparece en su `result`.
+- **Solo en un command que entra por HTTP** (`CHK-USECASES-BATCH-NOT-COMMAND`): por una suscripción, un `schedule` o
+  un `dispatches` no hay nadie a quien devolver el resultado por elemento.
+- **`execution`**: `sync` (por defecto) responde cuando termina. `async` responde `202` con la ubicación de un trabajo
+  que procesa el lote por partes, para importaciones de minutos (§ Lotes asíncronos). Los cuatro generadores traen los
+  dos modos.
+- `idempotency` de la operación se aplica al **lote entero** (`client-key` o `payload-hash`): repetir la clave devuelve
+  la misma respuesta sin volver a procesar nada. La guarda el generador elemento a elemento, así que un lote que se
+  cortó a mitad se **reanuda** desde el último elemento confirmado al repetirlo; mientras el primero sigue en marcha,
+  la repetición recibe el `409` de la clave en curso. Un `all-or-nothing` que falló no se guarda, y repetirlo lo vuelve
+  a procesar. Por elemento, la guarda es la `naturalKey` de lo que escribe. Cada elemento confirmado publica lo que
+  publicaría la operación sola (`emits`); el lote no publica un evento propio.
+
+El handler de la operación procesa **un** elemento; el bucle, la transacción de cada uno, su validación y la
+respuesta los pone el generador.
+
+### Lotes asíncronos
+
+Cuándo `sync` y cuándo `async` es una pregunta de tamaño, y el tamaño es contrato: un lote que cabe en segundos
+(hasta 1000 elementos) responde `207` en la misma petición; uno de minutos responde **`202`** con un **trabajo** y su
+URL en `Location`, y el cliente sondea su estado y lee sus resultados por páginas (`wire-contract.md` § Lotes
+asíncronos). El diseño no declara entidades para el trabajo: es del método, como el historial.
+
+```yaml
+importCatalog:
+  kind: command
+  input:
+    fields:
+      items: { type: ProductDraft, list: true, required: true, constraints: { maxItems: 50000 } }
+  output: void
+  idempotency: { keySource: client-key, ttlSeconds: 86400 }   # repetir la clave devuelve el MISMO trabajo
+  errors:
+    - { code: SKU_ALREADY_EXISTS, when: Ya existe un producto con ese SKU., http: 409 }
+  batch:
+    over: items
+    atomicity: per-item                # obligatorio en async
+    itemErrors: [SKU_ALREADY_EXISTS]
+    execution: async
+```
+
+- **Solo `per-item`** (`CHK-USECASES-BATCH-ASYNC-ATOMIC`): el trabajo se procesa por partes, cada elemento en su
+  transacción, y no se puede revertir entero. Un lote todo o nada grande se parte en lotes `sync`.
+- **Exige la capa `security`** (`CHK-USECASES-BATCH-NO-AUTH`): el trabajo y sus resultados solo los lee quien lo
+  creó; a cualquier otro le responden `404`, como a un trabajo que no existe.
+- **`maxItems`** sigue siendo obligatorio, sin el tope de 1000: es lo que el servicio acepta guardar de una vez.
+- **Con `idempotency`** (`client-key` o `payload-hash`), repetir la clave devuelve el mismo `202` con el mismo trabajo,
+  en el estado en que esté, también mientras corre; la misma clave con otro cuerpo es `IDEMPOTENCY_KEY_REUSED`. La
+  clave se acota por quien creó el trabajo, y `ttlSeconds` dice cuánto vale.
+- El trabajo se procesa **fuera de la petición**, sin token: lo que el handler necesite tiene que venir en el input, y
+  la identidad del llamante no puede ser un campo del input (lo rechazan los generadores). El actor de la autoría de
+  cada elemento es quien creó el trabajo.
+- Si la réplica que lo procesa cae, otra **reanuda desde el último elemento confirmado**: ninguno se aplica dos veces
+  ni se pierde. Los trabajos terminados se purgan pasada su retención (un parámetro del generador, 7 días).
+
+## Triggers: quién activa cada operación
+
+La capa que expone la operación la referencia por nombre:
+
+| Trigger | Se declara en |
+|---------|---------------|
+| Petición HTTP del cliente | `api` → `endpoints` (o `auto: true`) |
+| Evento del broker | `messaging` → `subscriptions.<Evento>.triggers` |
+| Temporal | aquí, con `schedule` |
+| Solo interna | aquí, con `internal: true` |
+| Otra operación de este servicio | en la que despacha, con `dispatches` (2.21) |
+
+Una operación sin ninguno de los cuatro primeros es **huérfana**: `keel validate` la reporta como warning.
+
+**`dispatches` — una operación que despacha otra (2.21).** Cuando parte del trabajo de una operación es ejecutar
+otro command del servicio —un barrido que pone en cuarentena lo que revalida, un alta que encadena una
+notificación—, se declara en la que despacha:
+
+```yaml
+reconcileScans:
+  kind: command
+  schedule: { cron: "0 * * * * *" }
+  dispatches: [quarantineAsset]   # con un veredicto no limpio, la pone en cuarentena por el mismo camino
+  rules:
+    - Con cualquier otro veredicto, despacha quarantineAsset con reason "revalidación - <veredicto>".
+```
+
+La regla sigue diciendo **cuándo** y **con qué**; `dispatches` dice **que** ocurre, que es lo que el generador
+necesita para dar a esa operación el puerto de despacho y su nota (qué variante usar: dentro de la transacción del
+llamante o sin ella). Sin el enlace, la costura quedaba en prosa y el agente escribía y cableaba el despachador en
+cada corrida. Cada destino tiene que ser un `command` de este servicio y no la propia operación
+(`CHK-USECASES-DISPATCH-TARGET`): una lectura no se despacha, se consulta. Despachar no sustituye a los demás
+disparadores —`quarantineAsset` sigue teniendo su suscripción—.
+
+**Una operación con varias puertas.** Una misma operación puede entrar por su endpoint, por una suscripción, por un
+despacho y por su reloj. Casi siempre da igual por cuál llega. Pero HTTP es la **única** puerta que puede responder un
+error a quien llamó: por las demás no hay nadie esperando, y lo que por HTTP es un 422 tiene que quedar en el estado (un
+cobro `failed` y su evento). Eso se escribe en las `rules`, nombrando la puerta («Por HTTP, …», «Por la suscripción,
+…»: `requestCharge` de `payment-checkout`). No hace falta declarar nada más. Cuando una operación entra por HTTP y por
+alguna otra, el generador da a su mensaje un campo obligatorio con la puerta por la que llegó: lo fija el endpoint, lo
+dicta la nota de la suscripción o del despacho, y la nota del handler dice que las reglas se deciden con él. Sin ese
+campo, el handler no tenía cómo saberlo, y cada corrida lo resolvía a mano de una forma distinta.

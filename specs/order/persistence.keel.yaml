@@ -1,0 +1,27 @@
+# Capa persistence — cómo se persisten las entidades. Modelo de almacenamiento, nunca el producto.
+
+default:
+  model: relational
+
+entities:
+  Order:
+    persisted: true
+    indexes:
+      - [customerRef, createdAt]                       # listMyOrders: los del comprador, más recientes primero
+      - [status, chargeOrderAwaitingSince]             # barrido: pendingPayment demasiado tiempo
+      - [status, captureOrderPaymentAwaitingSince]     # barrido: authorized sin captura confirmada
+      - [status, cancelOrderPaymentAwaitingSince]      # barrido: canceling sin anulación confirmada
+      - [status, actionRequiredSince]                  # barrido: actionRequired sin desenlace
+  OrderLine:
+    persisted: true
+  Product:
+    persisted: true
+    naturalKey: [id]
+
+audit:
+  timestamps: declared     # createdAt/updatedAt son contrato: salen en el pedido y ordenan listMyOrders
+  authorship: none
+
+consistency:
+  transactionalBoundary: per-aggregate
+  optimisticLocking: all

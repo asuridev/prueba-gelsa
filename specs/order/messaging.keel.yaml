@@ -1,0 +1,144 @@
+# Capa messaging — eventos que order consume (desenlaces de payment, réplica de catalog) y el
+# encargo de correo que publica hacia notifications. Canales lógicos, sin broker concreto.
+
+channels:
+  paymentEvents:
+    description: Desenlaces de los cobros que publica payment (todos sus clientes comparten el canal).
+  catalogEvents:
+    description: >-
+      Altas, cambios y retiradas de productos que publica catalog. Mientras catalog no exista, los
+      publica un emisor de pruebas con la envoltura Keel y el contrato propuesto aquí.
+  notificationRequests:
+    description: Puerta de entrada por eventos de notifications para pedir correos; la posee notifications.
+    external: true
+
+publishing:
+  reliability: outbox
+  events:
+    NotificationRequested:
+      description: >-
+        Encargo de correo a notifications con el desenlace del cobro de un pedido. La firma la fija
+        notifications (INTEGRATION.md 0.3.0, §Suscripciones). recipients lleva el customerEmail del
+        pedido; variables lleva orderId, totalAmount, currency y, en un pago fallido, failureReason.
+        totalAmount se escribe como texto con punto decimal, sin separador de miles y con tantos
+        decimales como la moneda según ISO 4217 (EUR "25.00", JPY "2500", KWD "2.500").
+        metadata.source es el nombre del cliente máquina de order ante notifications.
+      channel: notificationRequests
+      payload:
+        idempotencyKey: { type: string, required: true, constraints: { pattern: "^[A-Za-z0-9._:-]{8,128}$" } }
+        templateCode:   { type: string, required: true, constraints: { pattern: "^[a-z][a-z0-9-]{2,47}$" } }
+        recipients:     { type: EmailAddress, list: true, required: true, personal: true, constraints: { minItems: 1, maxItems: 20 } }
+        variables:      { type: NotificationVariable, list: true, personal: true, constraints: { maxItems: 50 } }
+
+subscriptions:
+  # ── payment (servicio Keel, envoltura estándar: dedup por metadata.eventId, tipo por metadata.eventType)
+  PaymentAuthorized:
+    description: payment autorizó un cobro; si es de un pedido, se pide su captura.
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      paymentId:       { type: uuid, required: true }
+      chargeRequestId: { type: string, required: true }
+    triggers: applyPaymentAuthorized
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  PaymentActionRequired:
+    description: El cobro de un pedido necesita el 3DS del comprador.
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      paymentId:       { type: uuid, required: true }
+      chargeRequestId: { type: string, required: true }
+      customerAction:  { type: json, required: true }
+    triggers: applyPaymentActionRequired
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  PaymentCaptured:
+    description: El cobro de un pedido quedó capturado; el pedido está pagado.
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      chargeRequestId: { type: string, required: true }
+    triggers: applyPaymentCaptured
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  PaymentFailed:
+    description: El cobro de un pedido falló.
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      paymentId:       { type: uuid, required: true }
+      chargeRequestId: { type: string, required: true }
+      failureReason:   { type: PaymentFailureReason, required: true }
+    triggers: applyPaymentFailed
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  PaymentCanceled:
+    description: La autorización del cobro de un pedido quedó anulada (por el comprador, por el plazo del 3DS o por la pasarela).
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      paymentId:       { type: uuid, required: true }
+      chargeRequestId: { type: string, required: true }
+    triggers: applyPaymentCanceled
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  PaymentActionRejected:
+    description: La pasarela rechazó una captura o una anulación y el cobro volvió al estado del que salió.
+    source: payment
+    channel: paymentEvents
+    contract: { envelope: keel }
+    payload:
+      chargeRequestId: { type: string, required: true }
+      action:          { type: enum, values: [capture, cancel, refund], required: true }
+      status:          { type: PaymentStatus, required: true }
+    triggers: applyPaymentActionRejected
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+
+  # ── catalog (contrato PROPUESTO por order, pendiente de acordar con el dueño de catalog)
+  ProductUpserted:
+    description: Un producto se dio de alta o cambió en catalog; mantiene la copia local.
+    source: catalog
+    channel: catalogEvents
+    contract: { envelope: keel }
+    payload:
+      productId: { type: uuid, required: true }
+      sku:       { type: string, required: true, constraints: { maxLength: 64 } }
+      name:      { type: string, required: true, constraints: { maxLength: 200 } }
+      price:     { type: Amount, required: true, description: "Contrato propuesto - catalog publica price mayor que cero; uno menor o igual deja el producto sin poder pedirse." }
+      currency:  { type: CurrencyCode, required: true }
+      version:   { type: long, required: true }
+    triggers: upsertProduct
+    input:
+      id: productId
+      sourceVersion: version
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true
+  ProductRetired:
+    description: catalog retiró un producto; deja de poder pedirse.
+    source: catalog
+    channel: catalogEvents
+    contract: { envelope: keel }
+    payload:
+      productId: { type: uuid, required: true }
+      version:   { type: long, required: true }
+    triggers: removeProduct
+    input:
+      id: productId
+      sourceVersion: version
+    onFailure:
+      retry: { maxAttempts: 5, backoff: exponential, initialDelayMs: 1000, maxDelayMs: 30000 }
+      deadLetter: true

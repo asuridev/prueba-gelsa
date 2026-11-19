@@ -1,0 +1,135 @@
+# Revisión semántica de order (REV-*). Lectura de contexto limpio sobre specs/order/.
+# No forma parte del DSL. Veredictos propuestos: corregir o aceptar es del diseñador.
+reviewedBy: keel-design-review
+reviewedAt: 0.1.0
+findings:
+  # ── domain ──────────────────────────────────────────────────────────────────────────────────────
+  - id: REV-DOMAIN-VAGUE-INVARIANT
+    scope: domain.entities.Order.invariants
+    verdict: fixed
+    note: >-
+      Se quitó la invariante de moneda: no era verificable sobre el agregado (OrderLine no tiene currency) y la garantía real ya la dan la precondición de createOrder y CURRENCY_MISMATCH. Decidido por el diseñador.
+  - id: REV-DOMAIN-INVARIANT-IS-TRANSITION
+    scope: domain.entities.Order.invariants
+    verdict: ok
+    note: >-
+      Ninguna de las tres invariantes de Order describe un cambio de estado: «el precio de una línea no
+      cambia» es inmutabilidad (la sostiene el agregado, «se crean juntos y no cambian por separado»),
+      no una arista. Product no tiene invariantes en prosa.
+  - id: REV-DOMAIN-INVARIANT-PROSE
+    scope: domain.entities.Order.invariants
+    verdict: ok
+    note: >-
+      Lo que cabía en checks ya está en checks (customerAction, failureReason y paymentId por estado,
+      totalAmount > 0; en Product, campos requeridos si no está retirado y price > 0). Las tres
+      invariantes en prosa cruzan a las líneas (moneda, productId único, precio inmutable) y no se
+      expresan como check de una entidad.
+  - id: REV-DOMAIN-BOUND-SERVER-WRITTEN
+    scope: domain.types.CustomerRef
+    verdict: accepted
+    note: >-
+      Decidido por el diseñador: el proveedor de identidad del sistema emite sub de 200 caracteres o menos (los habituales son UUID de 36), y payment acota customerRef también a 200. Si cambia de IdP, se revisa con /keel-evolve.
+  - id: REV-DOMAIN-PROMISED-STATE
+    scope: domain.entities.Product
+    verdict: ok
+    note: >-
+      La única promesa de conservación es la lápida de Product («se conserva la fila con su versión»),
+      y la sostienen retired y sourceVersion más removeProduct («la fila nunca se borra»). «Queda en el
+      log» en las apply se refiere al log operativo, no a un estado de la entidad.
+  - id: REV-PERSONAL-CLASSIFICATION
+    scope: domain.entities
+    verdict: ok
+    note: >-
+      Order marca personal customerRef y customerEmail; OrderLine y Product no tienen datos de personas;
+      customerAction es la acción 3DS opaca de la pasarela, no un dato del comprador. En messaging,
+      recipients y variables de NotificationRequested van marcados personal.
+  - id: REV-DOMAIN-PARTIAL-WRITER
+    scope: domain.entities.Order.fields.paymentId
+    verdict: fixed
+    note: >-
+      PaymentFailed y PaymentCanceled llevan paymentId en el payload y en el input de applyPaymentFailed y applyPaymentCanceled, que lo escriben; el barrido despacha con el id del cobro. paymentId null queda reservado a un cobro que payment nunca registró (notReceived).
+  # ── use-cases ───────────────────────────────────────────────────────────────────────────────────
+  - id: REV-USECASES-INTERNAL-REPEAT
+    scope: use-cases.operations
+    verdict: ok
+    note: >-
+      Los commands expuestos por HTTP son createOrder (idempotency client-key 24 h por customerRef) y
+      cancelOrder (idempotente por estado: canceling/canceled se devuelven sin llamar a payment, decisión
+      3.2 en decisions.yaml). Ninguno tiene un efecto interno acumulable sin guarda.
+  - id: REV-USECASES-GUARD-ORDER
+    scope: use-cases.operations.cancelOrder.rules
+    verdict: ok
+    note: >-
+      El único orden declarado es el de cancelOrder: no existe → ORDER_NOT_FOUND; ajeno → ORDER_NOT_OWNED;
+      canceling/canceled → se devuelve; no actionRequired → ORDER_NOT_CANCELABLE. Todas las guardas dependen
+      solo del pedido cargado por id, disponible desde la primera; el orden es implementable tal cual.
+  # ── messaging ───────────────────────────────────────────────────────────────────────────────────
+  - id: REV-MSG-MISSING-CHANNEL
+    scope: messaging
+    verdict: ok
+    note: >-
+      Todas las suscripciones declaran canal (paymentEvents, catalogEvents) y NotificationRequested
+      publica en notificationRequests (external, de notifications).
+  - id: REV-MSG-DEDUPE-WINDOW
+    scope: messaging.subscriptions
+    verdict: ok
+    note: >-
+      Las suscripciones de payment disparan apply* con transitions, que son la guarda. Las dos sin
+      transitions ni idempotency son ProductUpserted (upsertProduct) y ProductRetired (removeProduct):
+      su efecto fija valores con la guarda de sourceVersion (descarta versión menor o igual), así que una
+      reentrega pasada la ventana no acumula nada.
+  # ── dependencies ────────────────────────────────────────────────────────────────────────────────
+  - id: REV-DEPS-REPLICA-NO-RETIREMENT
+    scope: dependencies.catalog.needs.productPricing.replica
+    verdict: ok
+    note: >-
+      fedBy incluye ProductRetired, que dispara removeProduct y deja la lápida (retired true); createOrder
+      rechaza el producto retirado con PRODUCT_NOT_AVAILABLE.
+  - id: REV-DEPS-ONDEMAND-IN-COMMAND
+    scope: dependencies.payment.needs.chargeStatus
+    verdict: ok
+    note: >-
+      chargeStatus lo usa reconcileStalledOrders, un barrido programado, no una escritura con transacción
+      abierta: decisions.yaml §3.7 fija que las llamadas a payment ocurren siempre fuera de la transacción
+      del pedido, y onUnavailable degrade deja el pedido como estaba para el siguiente ciclo.
+  - id: REV-DEPS-REPLICA-AS-TRUTH
+    scope: domain.entities.Product.checks
+    verdict: fixed
+    note: >-
+      La réplica ya no rechaza un precio menor o igual que cero: el producto pasa a retired con esa versión y deja de poder pedirse, en vez de seguir vendiéndose al precio anterior. El contrato propuesto a catalog dice que publica price mayor que cero.
+  - id: REV-DEPS-NEED-IS-ACTIVATION
+    scope: dependencies.payment.needs.chargeStatus
+    verdict: ok
+    note: >-
+      getPaymentByChargeRequest es un GET que no muta nada en payment, y su status decide qué apply despacha
+      el barrido: es un need de verdad.
+  - id: REV-DEPS-IGNORED-FAILURE
+    scope: dependencies.notifications.activations.notifyOrderOutcome
+    verdict: accepted
+    note: >-
+      notifyOrderOutcome es awaits nothing: si notifications rechaza el encargo (plantilla sin publicar,
+      destinatario suprimido), el comprador no recibe el correo y order no se entera. Aceptado por escrito en
+      decisions.yaml (structural §3.1, messaging.publishing.reliability: outbox, «El diseñador acepta que un
+      rechazo de negocio de notifications acabe en la deadLetter de notifications sin que order se entere»).
+      Las activaciones de payment degradan y tienen reconciledBy reconcileStalledOrders.
+  - id: REV-DEPS-NO-COMPENSATION
+    scope: dependencies.payment.activations
+    verdict: ok
+    note: >-
+      Ninguna operación encarga trabajo y luego puede fallar dejándolo huérfano: createOrder confirma el
+      pedido en pendingPayment antes de requestCharge, cancelOrder confirma canceling antes de cancelPayment
+      y applyPaymentAuthorized confirma authorized antes de capturePayment. Si la escritura posterior falla,
+      el pedido sigue en el estado de espera y reconcileStalledOrders lo resuelve consultando a payment.
+  - id: REV-DEPS-AWAITING-CLOCK
+    scope: dependencies.payment.activations.captureOrderPayment.awaitingSince
+    verdict: fixed
+    note: >-
+      Toda entrada a authorized estampa captureOrderPaymentAwaitingSince (createOrder, cancelOrder, applyPaymentAuthorized, applyPaymentActionRejected), así que un PaymentAuthorized perdido no deja el pedido fuera del barrido (FL-REC-004 lo ejercita). La description de chargeOrderAwaitingSince ya dice que el barrido la renueva con pending.
+  # ── persistence ─────────────────────────────────────────────────────────────────────────────────
+  - id: REV-PERSIST-MISSING-INDEX
+    scope: persistence.entities.Order.indexes
+    verdict: ok
+    note: >-
+      listMyOrders tiene [customerRef, createdAt] (el filtro status opcional va sobre ese subconjunto);
+      cada rama del barrido tiene su [status, <marca>]; getOrder, cancelOrder y los apply buscan por id
+      (chargeRequestId «order:<id>»), y la réplica por su id (naturalKey).

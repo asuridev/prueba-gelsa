@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/2.0/flow-review.schema.json",
+  "title": "Keel Flow Review",
+  "description": "El careo de flujos de este servicio (flow-review.yaml, junto a las capas): cada escenario FL-* ejecutado paso a paso contra el diseño por un agente de contexto limpio (keel-flow-review), y lo que el diseñador decidió de cada contradicción. No forma parte del DSL: no describe lo que el servicio hace, sino qué se encontró al simularlo. Existe porque, en las corridas, la mayoría de los huecos entre escenarios y diseño los encontraba el agente de pruebas en la generación, que es donde el diseño ya no se puede tocar.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewedAt", "passes", "scenariosSha256", "findings"],
+  "properties": {
+    "reviewedAt": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "service.version del diseño careado."
+    },
+    "scenariosSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 de validation-scenarios.md SIN retornos de carro en el momento del careo. Si el documento cambia, el careo deja de hablar de él y keel validate lo avisa (CHK-SCEN-FLOW-REVIEW-STALE)."
+    },
+    "conventionsSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 de la sección «Convenciones de determinación» (conventionsDigest), sin retornos de carro. Si cambia, el careo pide pasada completa: las convenciones rigen todos los Then. Con este sello, un cambio en el resto de la prosa (cabecera, matriz, notas) ya no caduca el careo; sin él (careos anteriores), cualquier cambio fuera de los flujos pide pasada completa."
+    },
+    "passes": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Cuántas pasadas de careo se han hecho sobre ESTA versión del diseño. Hay presupuesto (3): al agotarlo no se carea más y lo que quede abierto se decide. Sin este número, el bucle «carear → corregir → carear» no termina solo — cada pasada encuentra algo nuevo, medido. Sube de versión el diseño y el presupuesto vuelve a empezar, que es la misma caducidad de review.yaml."
+    },
+    "flows": {
+      "type": "array",
+      "description": "Un sello por flujo careado: es lo que permite recarear SOLO lo que cambió. Sin él, corregir un escenario caduca el careo entero y obliga a repetir los 26 — cuatro minutos y 185k tokens medidos por pasada. Un flujo que no está aquí no se careó, y eso no se distingue de uno limpio si no se enumeran.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sha256"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^FL-[A-Za-z0-9-]+$" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 del CUERPO del bloque (sin retornos de carro), no del documento entero." }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Una entrada por contradicción. Una lista vacía es un resultado legítimo: se careó y no había nada.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["flow", "kind", "evidence", "proposal"],
+        "properties": {
+          "flow": { "type": "string", "pattern": "^FL-[A-Za-z0-9-]+$", "description": "El bloque donde aparece la contradicción." },
+          "step": { "type": "string", "description": "El paso (número de aserción del Then, o 'Given')." },
+          "kind": {
+            "enum": [
+              "carried-state",
+              "event-payload",
+              "response-shape",
+              "count",
+              "evaluation-order",
+              "unreachable-given",
+              "cross-flow",
+              "unobservable",
+              "other"
+            ],
+            "description": "Qué clase de contradicción es, de la lista cerrada de flow-walkthrough.md."
+          },
+          "artifact": { "type": "string", "description": "La capa o el documento con el que choca (ej. 'messaging.publishing.events.ProductCreated')." },
+          "evidence": { "type": "string", "minLength": 20, "description": "Lo que dice el escenario y lo que se deduce del YAML, con las dos citas." },
+          "proposal": { "type": "string", "minLength": 10, "description": "El cambio propuesto: en el escenario o en el diseño." },
+          "resolution": {
+            "enum": ["scenario", "design", "accepted"],
+            "description": "La decisión del diseñador: se corrigió el escenario, se corrigió el diseño, o se acepta a sabiendas (con reason). Sin ella el hallazgo sigue abierto."
+          },
+          "reason": { "type": "string", "minLength": 20, "description": "Obligatoria con 'accepted'." },
+          "sealAfter": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "Solo con 'scenario' y el presupuesto agotado: el sello del flujo DESPUÉS de corregirlo, que `keel validate --ready` imprime. Resella ese flujo sin pasada nueva, porque agotado el presupuesto lo abierto se decide y decidir 'scenario' es editarlo. Si el flujo vuelve a cambiar, el sello deja de casar y el flujo vuelve a bloquear."
+          }
+        },
+        "allOf": [
+          { "if": { "properties": { "resolution": { "const": "accepted" } }, "required": ["resolution"] }, "then": { "required": ["reason"] } },
+          { "if": { "required": ["sealAfter"] }, "then": { "properties": { "resolution": { "const": "scenario" } }, "required": ["resolution"] } }
+        ]
+      }
+    }
+  }
+}

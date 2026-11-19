@@ -1,0 +1,383 @@
+# Análisis de huecos de order (paso 4b de /keel-design). Barrido de contexto limpio sobre specs/order/.
+# No forma parte del DSL. Todo hallazgo nace open: cerrarlo es del diseñador.
+reviewedBy: keel-gap-sweep
+reviewedAt: 0.1.0
+
+coverage:
+  - class: 1
+    units: [Order]
+    result: findings
+  - class: 2
+    units: [createOrder, cancelOrder, applyPaymentAuthorized, applyPaymentActionRequired, applyPaymentCaptured, applyPaymentFailed, applyPaymentCanceled, applyPaymentActionRejected, reconcileStalledOrders, upsertProduct, removeProduct]
+    result: findings
+  - class: 3
+    units: [Order, OrderLine, Product]
+    result: findings
+  - class: 4
+    units: [createOrder, cancelOrder, applyPaymentAuthorized, applyPaymentActionRequired, applyPaymentCaptured, applyPaymentFailed, applyPaymentCanceled, applyPaymentActionRejected, reconcileStalledOrders, upsertProduct, removeProduct]
+    result: findings
+  - class: 5
+    units: [getOrder, listMyOrders]
+    result: clean
+  - class: 6
+    units: [Order, OrderLine, Product]
+    result: clean
+  - class: 7
+    units: [publishing.NotificationRequested, subscriptions.PaymentAuthorized, subscriptions.PaymentActionRequired, subscriptions.PaymentCaptured, subscriptions.PaymentFailed, subscriptions.PaymentCanceled, subscriptions.PaymentActionRejected, subscriptions.ProductUpserted, subscriptions.ProductRetired]
+    result: findings
+  - class: 8
+    units: [catalog.needs.productPricing, payment.needs.chargeStatus, payment.activations.chargeOrder, payment.activations.captureOrderPayment, payment.activations.cancelOrderPayment, notifications.activations.notifyOrderOutcome, clients.payment, subscriptions.PaymentAuthorized, subscriptions.PaymentActionRequired, subscriptions.PaymentCaptured, subscriptions.PaymentFailed, subscriptions.PaymentCanceled, subscriptions.PaymentActionRejected, subscriptions.ProductUpserted, subscriptions.ProductRetired]
+    result: findings
+  - class: 9
+    units: [createOrder, getOrder, listMyOrders, cancelOrder, applyPaymentAuthorized, applyPaymentActionRequired, applyPaymentCaptured, applyPaymentFailed, applyPaymentCanceled, applyPaymentActionRejected, reconcileStalledOrders, upsertProduct, removeProduct]
+    result: clean
+  - class: 12
+    units: [service]
+    result: findings
+  - class: 13
+    units: [reconcileStalledOrders]
+    result: findings
+  - class: 14
+    units: [Order, OrderLine, Product]
+    result: clean
+  - class: 15
+    units: [createOrder, getOrder, listMyOrders, cancelOrder, applyPaymentAuthorized, applyPaymentActionRequired, applyPaymentCaptured, applyPaymentFailed, applyPaymentCanceled, applyPaymentActionRejected, reconcileStalledOrders, upsertProduct, removeProduct]
+    result: clean
+  - class: 16
+    units: ['3.1', '3.2', '3.3', '3.5', '3.6', '3.7', '3.8', '3.9', '3.9b']
+    result: findings
+  - class: 19
+    units: [Order]
+    result: findings
+
+findings:
+  # ── 1. Alcanzabilidad del ciclo de vida ─────────────────────────────────────────────────────────
+  - class: 1
+    unit: Order
+    what: >-
+      actionRequired no tiene plazo propio (lifecycle.deadlines) ni lo barre reconcileStalledOrders; salir de
+      él depende por completo de que payment publique PaymentCanceled por el plazo del 3DS, y el diseño no
+      dice cuánto espera un pedido ni qué pasa si ese evento no llega.
+    severity: gap
+    state: decided
+    reason: >-
+      reconcileStalledOrders barre también actionRequired con actionRequiredSince de más de actionRequiredTimeoutHours (25 h, por encima del plazo 3DS de payment), consulta a payment y despacha el apply de su estado.
+  - class: 1
+    unit: Order
+    what: >-
+      paid es terminal y no hay devolución: payment admite refund (PaymentStatus refunding/refunded,
+      action refund) pero order no declara cómo se devuelve un pedido pagado ni que quede fuera de alcance.
+    severity: risk
+    state: accepted
+    reason: >-
+      Las devoluciones quedan fuera del alcance de esta versión por decisión del diseñador: paid es terminal. refundOrder y el estado refunded serán una evolución minor.
+
+  # ── 2. Guardas ↔ errores ────────────────────────────────────────────────────────────────────────
+  - class: 2
+    unit: createOrder
+    what: >-
+      La respuesta de requestCharge solo se mapea para authorized, actionRequired, failed, pending y tres
+      códigos de rechazo; no dice qué hace el pedido con otros status (captured, capturing, canceled) ni con
+      otros 4xx de payment (validación, 409 de chargeRequestId, 401/403 del token M2M).
+    severity: gap
+    state: decided
+    reason: >-
+      createOrder: authorized/capturing/captured → authorized; canceled → canceled con su correo; failed sin motivo → processingError; cualquier otro 4xx → paymentFailed(processingError); 401/403 M2M o fallo del token → pendingPayment como payment no disponible.
+  - class: 2
+    unit: createOrder
+    what: >-
+      La regla «token sin claim email es 401» no tiene error declarado (code ni http en errors), y un claim
+      email que no cumple el pattern de EmailAddress no tiene guarda ni error: ¿401, 400 o 422 INVARIANT_VIOLATED?
+    severity: risk
+    state: decided
+    reason: >-
+      Nuevo error CUSTOMER_EMAIL_REQUIRED (422): token sin claim email o con un valor que no es una dirección válida.
+  - class: 2
+    unit: cancelOrder
+    what: >-
+      El when de ORDER_NOT_FOUND («no existe un pedido con ese id del comprador que pregunta») también
+      describe un pedido ajeno, que debe dar ORDER_NOT_OWNED 403; la guarda que separa los dos no está escrita.
+    severity: risk
+    state: decided
+    reason: >-
+      cancelOrder fija el orden de guardas: no existe → ORDER_NOT_FOUND (404); ajeno → ORDER_NOT_OWNED (403); el when de ORDER_NOT_FOUND ya no describe el pedido ajeno.
+  - class: 2
+    unit: cancelOrder
+    what: >-
+      ORDER_NOT_CANCELABLE lo disparan dos guardas distintas (estado del pedido inválido, sin efecto; y
+      PAYMENT_NOT_CANCELABLE de payment, que además devuelve el pedido a actionRequired): el cliente no puede
+      distinguir si su petición movió algo.
+    severity: risk
+    state: decided
+    reason: >-
+      Se separan los dos desenlaces: ORDER_NOT_CANCELABLE (409, el pedido no está en actionRequired, sin cambiar nada) y ORDER_PAYMENT_ADVANCED (409, payment ya no admite anular; el pedido vuelve a actionRequired).
+  - class: 2
+    unit: cancelOrder
+    what: >-
+      La respuesta de cancelPayment solo se mapea para canceled, canceling, failed y dos códigos; no dice qué
+      hace el pedido si payment responde authorized/actionRequired/captured o un 404 PAYMENT_NOT_FOUND
+      (pedido en actionRequired cuyo paymentId payment no reconoce).
+    severity: gap
+    state: decided
+    reason: >-
+      cancelOrder: authorized/capturing/captured → authorized (nueva arista canceling→authorized); actionRequired → vuelve con ORDER_CANCEL_REJECTED; PAYMENT_NOT_FOUND, 401/403 o sin respuesta → queda en canceling para el barrido.
+  - class: 2
+    unit: applyPaymentFailed
+    what: >-
+      Las rules solo dicen qué pasa desde pendingPayment/actionRequired/canceling y en paymentFailed; en
+      authorized, paid o canceled no está dicho si se ignora en silencio o es un error que reintenta y acaba en DLQ.
+    severity: risk
+    state: decided
+    reason: >-
+      applyPaymentFailed en cualquier estado distinto de pendingPayment/actionRequired/canceling no hace nada y queda en el log.
+  - class: 2
+    unit: applyPaymentCanceled
+    what: >-
+      Las rules no dicen qué hace un PaymentCanceled que llega con el pedido en paid o paymentFailed
+      (ignorar o fallar hacia la DLQ); solo cubren canceled.
+    severity: risk
+    state: decided
+    reason: >-
+      applyPaymentCanceled en canceled, paid o paymentFailed no hace nada y queda en el log.
+  - class: 2
+    unit: reconcileStalledOrders
+    what: >-
+      Para un pedido en pendingPayment solo se mapean los status authorized, actionRequired, captured, failed,
+      canceled y pending de payment; capturing, canceling, refunding y refunded no tienen desenlace, y captured
+      despacha applyPaymentCaptured, que desde pendingPayment no hace nada (no hay arista pendingPayment→paid).
+    severity: gap
+    state: decided
+    reason: >-
+      El barrido traduce todos los status: authorized/capturing → applyPaymentAuthorized; captured → applyPaymentAuthorized y después applyPaymentCaptured; pending → renueva la marca; canceling/refunding/refunded → nada, al log.
+  - class: 2
+    unit: upsertProduct
+    what: >-
+      Un ProductUpserted con datos que violan la entidad (price 0, sku de más de 64) no tiene error declarado:
+      reintenta 5 veces un fallo que no es pasajero antes de la DLQ, y no está dicho si debe ir directo a la DLQ.
+    severity: risk
+    state: decided
+    reason: >-
+      Un ProductUpserted con precio menor o igual que cero no se rechaza: deja el producto sin poder pedirse (retired con esa versión). Revisado tras REV-DEPS-REPLICA-AS-TRUTH: no vender es mejor que vender a un precio rancio.
+
+  # ── 3. Determinación del estado ─────────────────────────────────────────────────────────────────
+  - class: 3
+    unit: Order
+    what: >-
+      failureReason es obligatorio en paymentFailed, pero en requestCharge y cancelPayment llega opcional; el
+      diseño no dice qué motivo se guarda cuando payment responde failed sin failureReason (hoy acabaría en 422
+      INVARIANT_VIOLATED tras haber pedido el cobro).
+    severity: gap
+    state: decided
+    reason: >-
+      Si payment no informa failureReason al fallar, se guarda processingError (rules de createOrder, cancelOrder y del barrido).
+  - class: 3
+    unit: Order
+    what: >-
+      customerAction solo se exige en actionRequired pero no se prohíbe fuera de él; no está dicho si se borra al
+      salir de actionRequired (a authorized, canceling, canceled…) o sigue viajando en la respuesta.
+    severity: risk
+    state: decided
+    reason: >-
+      customerAction se borra al salir de actionRequired; se conserva solo en canceling (por si payment rechaza la anulación). Check forbids en domain y rules en las apply.
+
+  # ── 4. Concurrencia y unicidad ──────────────────────────────────────────────────────────────────
+  - class: 4
+    unit: createOrder
+    what: >-
+      Tras la llamada a payment, createOrder escribe el pedido de nuevo; si el evento de payment ya lo movió,
+      esa escritura choca con el bloqueo optimista, y createOrder no declara CONCURRENT_MODIFICATION ni dice si
+      relee y responde 201 con el estado vigente.
+    severity: gap
+    state: decided
+    reason: >-
+      createOrder RELEE el pedido tras llamar a payment y solo aplica la respuesta si sigue en pendingPayment; si un evento llegó antes, responde con el estado actual sin 409.
+  - class: 4
+    unit: createOrder
+    what: >-
+      Una repetición con la misma Idempotency-Key, ¿devuelve la respuesta guardada (el pedido como estaba al
+      crearlo) o el pedido en su estado actual? El comprador que reintenta tras un timeout ve cosas distintas.
+    severity: risk
+    state: decided
+    reason: >-
+      Repetir createOrder con la misma Idempotency-Key devuelve el pedido en su estado ACTUAL (se guarda el id del recurso creado).
+  - class: 4
+    unit: cancelOrder
+    what: >-
+      Si la escritura posterior a cancelPayment choca con un evento de payment, el cliente recibe 409
+      CONCURRENT_MODIFICATION aunque la anulación ya se pidió; no está dicho si se relee y responde 200.
+    severity: risk
+    state: decided
+    reason: >-
+      cancelOrder RELEE el pedido tras llamar a payment; si un evento ya lo movió, responde con su estado actual sin 409.
+  - class: 4
+    unit: upsertProduct
+    what: >-
+      Dos ProductUpserted del mismo producto nuevo procesados a la vez chocan en la unicidad de Product.id, no en
+      el bloqueo optimista; el error de esa colisión (¿CONCURRENT_MODIFICATION y reintento?) no está declarado.
+    severity: risk
+    state: decided
+    reason: >-
+      Dos altas simultáneas del mismo producto chocan en la unicidad del id: la segunda falla con CONCURRENT_MODIFICATION y su reintento aplica la regla de versión.
+
+  # ── 7. Contrato de eventos ──────────────────────────────────────────────────────────────────────
+  - class: 7
+    unit: publishing.NotificationRequested
+    what: >-
+      variables es una lista de strings, pero no está fijado cómo se escriben totalAmount (12.5, 12.50, 12.500),
+      failureReason (el code o un texto) ni qué variables lleva cada templateCode (order-paid, order-canceled,
+      order-payment-failed); dos generadores mandarán correos distintos.
+    severity: gap
+    state: decided
+    reason: >-
+      Variables fijadas: orderId, totalAmount (texto decimal con los decimales de la moneda, p. ej. 25.90) y currency en las tres plantillas; failureReason (código del enum) solo en order-payment-failed.
+  - class: 7
+    unit: subscriptions.ProductUpserted
+    what: >-
+      Con deletion physical la retirada borra la fila y su sourceVersion; un ProductUpserted más antiguo que
+      llegue después de un ProductRetired vuelve a crear el producto retirado y se puede pedir. Falta lápida o regla.
+    severity: gap
+    state: decided
+    reason: >-
+      Lápida: removeProduct no borra, marca retired con su versión; un alta con versión menor o igual se descarta y no resucita el producto.
+  - class: 7
+    unit: subscriptions.ProductRetired
+    what: >-
+      Un ProductRetired que llega antes que el alta del producto «no hace nada» y no deja rastro, así que el
+      ProductUpserted posterior (de versión menor) lo crea como vendible.
+    severity: gap
+    state: decided
+    reason: >-
+      Una retirada que llega antes que el alta crea una lápida (id, retired, versión); el alta posterior con versión menor o igual se descarta.
+
+  # ── 8. Fallo de dependencias externas ───────────────────────────────────────────────────────────
+  - class: 8
+    unit: catalog.needs.productPricing
+    what: >-
+      La réplica no tiene carga inicial ni resincronización: arranca vacía (todo createOrder da
+      PRODUCT_NOT_AVAILABLE hasta que llegue un evento de cada producto) y lo que acabe en DLQ o se pierda tras
+      reclamar no se recupera nunca.
+    severity: gap
+    state: accepted
+    reason: >-
+      Decidido por el diseñador: la carga inicial la hace el emisor de pruebas publicando el catálogo completo al arrancar (re-ejecutable); la resincronización contra el catalog real queda para una evolución cuando exista.
+  - class: 8
+    unit: payment.activations.captureOrderPayment
+    what: >-
+      El barrido de authorized ignora la respuesta de capturePayment: si PaymentCaptured o PaymentCanceled se
+      pierde (DLQ), el pedido sigue en authorized para siempre aunque payment responda captured o canceled, y se
+      repide la captura cada paymentActionRetryMinutes sin tope; tampoco hay tope si la pasarela rechaza siempre.
+    severity: gap
+    state: decided
+    reason: >-
+      El barrido aplica la respuesta de la captura: captured → applyPaymentCaptured, canceled → applyPaymentCanceled; la marca solo se renueva al repedir, así que no hay repetición sin desenlace.
+  - class: 8
+    unit: clients.payment
+    what: >-
+      No está dicho qué ve el comprador ni qué hace el pedido si falla la obtención del token M2M o payment
+      responde 401/403 (scope insuficiente): ¿se trata como payment no disponible (degrade) o es un 5xx propio?
+    severity: risk
+    state: decided
+    reason: >-
+      Fallo al obtener el token M2M o 401/403 de payment se tratan como payment no disponible: la misma degradación de cada activación (pendingPayment / authorized / canceling y barrido).
+  - class: 8
+    unit: subscriptions.PaymentFailed
+    what: >-
+      Si PaymentFailed acaba en la DLQ con el pedido en actionRequired, ninguna reconciliación lo recupera
+      (el barrido no mira actionRequired) y el comprador ve un pedido esperando el 3DS para siempre.
+    severity: gap
+    state: decided
+    reason: >-
+      El barrido recupera actionRequired pasadas actionRequiredTimeoutHours consultando a payment: un PaymentFailed en la DLQ se aplica por esa vía.
+  - class: 8
+    unit: subscriptions.PaymentCanceled
+    what: >-
+      Si PaymentCanceled (plazo del 3DS vencido) acaba en la DLQ con el pedido en actionRequired, ninguna
+      reconciliación lo recupera y el pedido nunca sale de actionRequired ni se manda el correo de cancelación.
+    severity: gap
+    state: decided
+    reason: >-
+      El barrido recupera actionRequired pasadas actionRequiredTimeoutHours: un PaymentCanceled en la DLQ se aplica por esa vía, con su correo de cancelación.
+
+  # ── 12. Zonas grises de la equivalencia ─────────────────────────────────────────────────────────
+  - class: 12
+    unit: service
+    what: >-
+      Representación de los importes en JSON (número o string, con escala fija o sin ceros a la derecha) en
+      totalAmount y unitPrice, y si la escala respeta los decimales de la moneda (JPY 0, EUR 2).
+    severity: gap
+    state: decided
+    reason: >-
+      Importes: número JSON con los decimales de la moneda (mismo criterio que payment, comparación por valor). Se fija en las convenciones de validation-scenarios.md.
+  - class: 12
+    unit: service
+    what: >-
+      Convención de ausencia: paymentId, customerAction y failureReason vacíos, ¿no aparecen en la respuesta o
+      aparecen como null?
+    severity: gap
+    state: decided
+    reason: >-
+      conventions.nulls: include en el manifiesto: un campo sin valor viaja como null (igual que payment); una colección vacía como [].
+  - class: 12
+    unit: service
+    what: >-
+      Formato de los timestamps de salida (createdAt, updatedAt): UTC con Z y precisión (segundos o
+      milisegundos), que además desempata el orden de listMyOrders.
+    severity: gap
+    state: decided
+    reason: >-
+      Timestamps de salida en ISO-8601 UTC con milisegundos (sufijo Z), como payment; se fija en las convenciones de validation-scenarios.md.
+
+  # ── 13. Ejecuciones programadas ─────────────────────────────────────────────────────────────────
+  - class: 13
+    unit: reconcileStalledOrders
+    what: >-
+      Un pedido en pendingPayment cuyo cobro payment devuelve pending no renueva chargeOrderAwaitingSince: se
+      queda siempre entre los más antiguos, se consulta en cada ciclo sin fin, y 100 de ellos acaparan el lote
+      y dejan sin barrer al resto.
+    severity: gap
+    state: decided
+    reason: >-
+      Con el cobro en pending el barrido renueva chargeOrderAwaitingSince: no se consulta en cada ciclo y no acapara el lote.
+  - class: 13
+    unit: reconcileStalledOrders
+    what: >-
+      «Si un ciclo sigue en curso el siguiente no arranca» no dice si vale entre varias instancias del servicio;
+      tampoco si un fallo con un pedido corta el ciclo o solo salta ese pedido.
+    severity: risk
+    state: decided
+    reason: >-
+      Con varias instancias cada una reclama un lote disjunto; un pedido que falla no corta el ciclo, se registra y queda para el siguiente.
+  - class: 13
+    unit: reconcileStalledOrders
+    what: >-
+      El cron fijo de 5 minutos no baja con testValue (1 minuto): un escenario espera hasta 6 minutos y no hay
+      disparador manual declarado para verificarlo.
+    severity: risk
+    state: accepted
+    reason: >-
+      El cron de 5 minutos no se acelera en pruebas; los plazos sí (testValue 1 en paymentPendingTimeoutMinutes, paymentActionRetryMinutes y actionRequiredTimeoutHours). Decidido por el diseñador.
+
+  # ── 16. Decisiones estructurales sin dueño ──────────────────────────────────────────────────────
+  - class: 16
+    unit: '3.2'
+    what: >-
+      El registro solo recoge la idempotencia de createOrder; no consta que se preguntara por cancelOrder (sin
+      idempotency, confiando en la rule de repetición) ni por los commands disparados por eventos
+      (apply*, upsertProduct, removeProduct), que dependen de metadata.eventId y de sus guardas de estado.
+    severity: gap
+    state: decided
+    reason: >-
+      Registrado en decisions.yaml §3.2: cancelOrder es idempotente por estado (canceling/canceled se devuelven tal cual); los commands de eventos se protegen con metadata.eventId de la envoltura Keel más la guarda del lifecycle o la de versión.
+
+  # ── 19. Ciclo de vida del dato ──────────────────────────────────────────────────────────────────
+  - class: 19
+    unit: Order
+    what: >-
+      Order guarda customerRef y customerEmail (personal) sin retention ni operación de borrado o
+      anonimización: se conservan sin plazo y no hay vía para atender una petición de supresión.
+    severity: gap
+    state: accepted
+    reason: >-
+      Aceptado por escrito en decisions.yaml (OBL-PERSONAL-RETENTION-UNDECIDED, since 0.1.0): el diseñador
+      decidió conservar el pedido sin plazo hasta fijar la política legal; declarar la retención será una
+      evolución minor.

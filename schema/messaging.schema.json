@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/2.0/messaging.schema.json",
+  "title": "Keel Messaging Layer",
+  "description": "Integración con el broker de mensajería: eventos que el servicio publica y suscripciones que consume.",
+  "type": "object",
+  "additionalProperties": false,
+  "anyOf": [
+    { "required": ["publishing"] },
+    { "required": ["subscriptions"] }
+  ],
+  "properties": {
+    "channels": {
+      "type": "object",
+      "description": "Canales lógicos por los que fluyen los eventos. Agnósticos del broker: cada canal se materializa en un topic (Kafka), una cola/exchange (RabbitMQ)… al generar. Los eventos y suscripciones los referencian por nombre.",
+      "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "external": {
+            "type": "boolean",
+            "default": false,
+            "description": "El canal lo posee otro sistema: el generador no lo crea ni asume la envoltura de eventos de Keel sobre él, y su nombre físico se resuelve como parámetro de despliegue."
+          }
+        }
+      }
+    },
+    "publishing": {
+      "type": "object",
+      "required": ["events"],
+      "additionalProperties": false,
+      "properties": {
+        "reliability": {
+          "type": "string",
+          "enum": ["outbox", "best-effort"],
+          "default": "best-effort",
+          "description": "outbox: ningún evento se pierde si la transacción confirma. La implementación es cosa del generador."
+        },
+        "events": {
+          "type": "object",
+          "minProperties": 1,
+          "propertyNames": { "pattern": "^[A-Z][A-Za-z0-9]*$" },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["payload"],
+            "additionalProperties": false,
+            "properties": {
+              "description": { "type": "string" },
+              "channel": {
+                "type": "string",
+                "pattern": "^[a-z][A-Za-z0-9]*$",
+                "description": "Canal lógico donde se publica (debe existir en channels)."
+              },
+              "payload": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/fieldMap" }
+            }
+          }
+        }
+      }
+    },
+    "subscriptions": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[A-Z][A-Za-z0-9]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "payload", "triggers"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "source": {
+            "type": "string",
+            "description": "Servicio o sistema que origina el evento."
+          },
+          "nature": {
+            "type": "string",
+            "enum": ["fact", "request"],
+            "default": "fact",
+            "description": "Qué es el mensaje para este servicio. fact: un hecho que ocurrió en el origen y al que reaccionamos por nuestra cuenta; el origen no sabe que existimos y es una dependencia nuestra. request: una petición de trabajo dirigida a nosotros; su payload es CONTRATO PÚBLICO de entrada de este servicio (va al §Suscripciones del INTEGRATION.md), quien lo emite se acopla a nosotros, y su source no es una dependencia."
+          },
+          "channel": {
+            "type": "string",
+            "pattern": "^[a-z][A-Za-z0-9]*$",
+            "description": "Canal lógico al que pertenece el evento consumido (debe existir en channels). Es agrupación y contrato (external, contract), no dirección: el destino físico del que se consume sale de source (<source>.events por convención, el mismo en el que el emisor publica), o de un parámetro de despliegue si el canal es external."
+          },
+          "contract": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Forma real del mensaje que emite la fuente: cómo llega envuelto, en qué formato, cómo se reconoce y cómo se identifica para no procesarlo dos veces.",
+            "properties": {
+              "envelope": {
+                "type": "string",
+                "enum": ["keel", "wrapped", "none"],
+                "description": "keel: la fuente es otro servicio Keel y usa la envoltura estándar (metadata + data). wrapped: envoltura propia de la fuente, el payload vive en payloadPath. none: el mensaje es el payload. Por defecto keel si el canal no es external, none si lo es."
+              },
+              "payloadPath": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Ruta (dot-path) al payload dentro de la envoltura de la fuente. Obligatorio y exclusivo de envelope: wrapped."
+              },
+              "format": {
+                "type": "string",
+                "enum": ["json", "avro", "protobuf", "xml"],
+                "default": "json",
+                "description": "Formato de serialización que emite la fuente. Es un dato del emisor, no una elección de generación."
+              },
+              "schemaRef": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Identificador del schema del mensaje en el registro de la fuente (relevante con avro/protobuf)."
+              },
+              "discriminator": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/messageRef",
+                "description": "Cómo se reconoce este evento cuando el canal transporta varios tipos. Requiere value."
+              },
+              "messageId": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/messageRef",
+                "description": "Dato que identifica unívocamente el mensaje; es la clave de deduplicación ante reentregas."
+              },
+              "unknownFields": {
+                "type": "string",
+                "enum": ["ignore", "fail"],
+                "default": "ignore",
+                "description": "Qué hacer con campos que la fuente envía y el diseño no declara."
+              }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "envelope": { "const": "wrapped" } }, "required": ["envelope"] },
+                "then": { "required": ["payloadPath"] },
+                "else": { "not": { "required": ["payloadPath"] } }
+              },
+              {
+                "if": { "required": ["discriminator"] },
+                "then": { "properties": { "discriminator": { "required": ["value"] } } }
+              },
+              {
+                "if": { "required": ["messageId"] },
+                "then": { "properties": { "messageId": { "not": { "required": ["value"] } } } }
+              }
+            ]
+          },
+          "identity": {
+            "type": "object",
+            "required": ["field", "from", "onUnresolved"],
+            "additionalProperties": false,
+            "description": "De dónde sale, en este camino, la identidad de quien pide el trabajo. Por HTTP la declara security.authentication.callerIdentity (el claim del token o el cliente máquina de la credencial); por un broker no llega ningún token, así que hay que decir qué lo sustituye. Si la operación entra por las DOS puertas, las dos identidades tienen que aterrizar en el mismo campo — y si no se dice, cada quien supondrá una cosa distinta. El dato NO viaja en el payload: ponerlo en dos sitios son dos versiones de la verdad, y tarde o temprano una deja de validarse.",
+            "properties": {
+              "field": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName",
+                "description": "Campo del input de la operación disparada que recibe la identidad ya resuelta. La operación la recibe RESUELTA y en ningún otro sitio del servicio se vuelve a leer el mensaje crudo: esa costura de un solo punto es lo que hace barato cambiar de mecanismo."
+              },
+              "from": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/messageRef",
+                "description": "Dónde viaja la identidad en el mensaje. La diferencia entre las dos opciones no es de forma sino de QUIÉN LA GARANTIZA, y las dos son legítimas: lo que no lo es, es no haberlo decidido. 'header': un metadato que estampa el BROKER y el cliente no puede escribir (user_id de AMQP, SenderId de SQS) — la identidad la verifica quien autenticó la publicación, igual que por HTTP la verifica el proveedor de identidad. COMPRUEBA QUE TU TRANSPORTE LO DISTINGA DE VERDAD antes de elegirlo: en un topic con fan-out no siempre lo hace. Verificado en SNS→SQS, el SenderId que llega a la cola es el de la CUENTA, no el del sistema que publicó, así que todos los emisores dan el mismo valor y 'header' ahí no identifica a nadie — la salida en ese caso es un destino por emisor con política que solo admita a su principal, que es un cambio de topología y no de estas dos líneas. 'field' con dot-path: un campo del CUERPO (metadata.source), que el emisor escribe él mismo y nadie comprueba; ahí la garantía no es técnica sino una política de desarrollo, y por eso exige declarar 'trustedPublishers'."
+              },
+              "onUnresolved": {
+                "type": "string",
+                "enum": ["discard", "deadLetter"],
+                "description": "Qué se hace con un mensaje cuya identidad no resuelve a nada conocido. Es un fallo PERMANENTE, no transitorio: reintentarlo cinco veces con backoff no va a hacer aparecer lo que no existe, solo retrasa el descubrimiento y llena los logs. Por eso no hay opción de reintentar, y por eso se declara aparte de onFailure — que trata todo fallo como transitorio."
+              },
+              "resolvedBy": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Za-z0-9]*\\.[a-z][A-Za-z0-9]*$",
+                "description": "Contra qué se resuelve el valor leído, cuando la correspondencia NO es 1:1: Entidad.campo, y ese campo tiene que ser una LISTA del dominio. Es el gemelo de security.authentication.callerIdentity.from.resolvedBy: si un recurso tiene varias credenciales y el emisor se nombra con una de ellas (metadata.source = client_id), aquí va el mismo Entidad.campo. Sin él, el valor se busca por la clave natural del recurso, y un emisor registrado con cualquier otra credencial no resuelve a nada. DSL 2.17."
+              },
+              "trustedPublishers": {
+                "type": "string",
+                "minLength": 20,
+                "description": "Quién puede publicar en este canal y por qué se acepta que la identidad NO venga verificada, en prosa. Obligatorio y exclusivo de from.location 'field', que lee un dato que escribe el propio emisor. No es una casilla de conformidad: es la asunción que sostiene el mecanismo, y ponerla por escrito es lo que la hace revisable el día que cambie. La asunción que casi siempre está detrás tiene dos mitades y solo una es técnica — (1) nadie publica anónimamente en el canal: el broker autentica a los emisores, lo que acota el riesgo a quienes ya están dentro; (2) cada emisor pone su propio nombre, que es una política de desarrollo y nada en el camino la comprueba. Lo que queda vivo es un emisor REGISTRADO pidiendo trabajo en nombre de otro, y se acepta mientras todos sean sistemas propios en la misma malla de confianza.",
+                "$comment": "La señal para revisar esto es inconfundible: el día que un emisor deje de estar dentro del perímetro (un tercero, otra organización, un cliente integrado) o que alguien pida no-repudio del origen para una auditoría. Lo que NO es automático es que la salida sea 'header': solo lo es si el transporte estampa un principal por emisor. Con un topic de fan-out (SNS→SQS) no lo hace, y entonces la salida es un destino por emisor con ACL — eso sí cuesta aprovisionamiento por consumidor. Cuando 'header' aplica, cambiarlo es sustituir dos líneas: la resolución vive en un solo punto y no toca dominio, casos de uso ni esquema."
+              },
+              "description": { "type": "string" }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "type": "object",
+                  "required": ["from"],
+                  "properties": { "from": { "type": "object", "properties": { "location": { "const": "field" } }, "required": ["location"] } }
+                },
+                "then": { "required": ["trustedPublishers"] },
+                "else": { "not": { "required": ["trustedPublishers"] } }
+              }
+            ]
+          },
+          "payload": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/fieldMap" },
+          "triggers": {
+            "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName",
+            "description": "Operación de este servicio que se ejecuta al recibir el evento."
+          },
+          "input": {
+            "type": "object",
+            "minProperties": 1,
+            "description": "Mapeo campo del input de la operación disparada → campo del payload de la suscripción. Si se omite, se asume identidad por nombre. Desde DSL 2.16 el valor puede ser también un campo de la envoltura Keel (metadata.eventId, metadata.occurredAt, metadata.source), solo con contract.envelope keel: es lo que da forma estructural a una regla que deriva algo del mensaje en sí, como una clave de deduplicación 'event:<eventId>'.",
+            "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^([a-z][A-Za-z0-9]*|metadata\\.(eventId|occurredAt|source))$"
+            }
+          },
+          "onFailure": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "retry": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/retryPolicy" },
+              "deadLetter": {
+                "type": "boolean",
+                "default": false,
+                "description": "Tras agotar reintentos, el mensaje va a una cola de mensajes muertos."
+              },
+              "acknowledgeOn": {
+                "type": "array",
+                "uniqueItems": true,
+                "minItems": 1,
+                "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+                "description": "Errores de negocio de la operación que dispara la suscripción con los que el mensaje se da por ATENDIDO: sin efecto, sin reintento y sin descarte (un duplicado que ya tiene su resultado, por ejemplo). Los demás rechazos de negocio no se reintentan y van al descarte. Cada `code` tiene que estar en los `errors` de la operación."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

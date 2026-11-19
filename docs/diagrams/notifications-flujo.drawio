@@ -1,0 +1,31 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="notifications-flujo" name="notifications - flujo">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1520" pageHeight="440" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="&lt;b&gt;notifications: de la petici&oacute;n al desenlace&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=20;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="30" y="10" width="760" height="40" as="geometry"/></mxCell>
+        <mxCell id="a" value="POST /notifications" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="30" y="90" width="190" height="56" as="geometry"/></mxCell>
+        <mxCell id="b" value="Evento&lt;br&gt;NotificationRequested" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="30" y="214" width="190" height="56" as="geometry"/></mxCell>
+        <mxCell id="c" value="Aceptar y responder&lt;br&gt;202 «aceptado»" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="290" y="150" width="170" height="70" as="geometry"/></mxCell>
+        <mxCell id="d" value="queued" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="520" y="150" width="120" height="70" as="geometry"/></mxCell>
+        <mxCell id="e" value="¿Destinatario&lt;br&gt;suprimido?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="700" y="130" width="160" height="110" as="geometry"/></mxCell>
+        <mxCell id="f" value="sending" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="920" y="150" width="120" height="70" as="geometry"/></mxCell>
+        <mxCell id="g" value="sent" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="1110" y="80" width="110" height="56" as="geometry"/></mxCell>
+        <mxCell id="h" value="failed" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="1110" y="234" width="110" height="56" as="geometry"/></mxCell>
+        <mxCell id="i" value="failed" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="725" y="320" width="110" height="56" as="geometry"/></mxCell>
+        <mxCell id="j" value="Publica el desenlace&lt;br&gt;EmailSent /&lt;br&gt;EmailDeliveryFailed" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="1280" y="170" width="200" height="80" as="geometry"/></mxCell>
+        <mxCell id="e2" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="a" target="c"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e3" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="b" target="c"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e4" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="c" target="d"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e5" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="d" target="e"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e6" value="no" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="e" target="f"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e7" value="sí" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="e" target="i"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e8" value="relay acepta" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="f" target="g"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e9" value="rechazo, error&lt;br&gt;o atascado" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="f" target="h"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e10" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="g" target="j"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e11" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="h" target="j"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="i" target="j"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1380" y="348"/></Array></mxGeometry></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

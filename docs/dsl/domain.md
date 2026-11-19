@@ -1,0 +1,250 @@
+# Capa `domain` — modelado del dominio (obligatoria)
+
+Archivo: `specs/<servicio>/domain.keel.yaml` · Schema: [`schema/domain.schema.json`](../../schema/domain.schema.json)
+
+Value types, entidades, agregados, relaciones, ciclo de vida e invariantes. Es la base de todas las demás capas: use-cases referencia sus entidades y tipos; persistence decide cómo se guardan.
+
+## `types` — value types
+
+Tipos con semántica de negocio, definidos una vez y reutilizados en entidades, operaciones y eventos. Nombres en `PascalCase` y **en inglés** — como todo identificador del DSL (regla transversal de `dsl-reference.md`); las `description` van en español. Admiten tres formas:
+
+```yaml
+types:
+  SKU:                          # escalar: tipo base + restricciones
+    base: string
+    description: Identificador comercial único del producto.
+    constraints: { pattern: "^[A-Z0-9]{4,20}$" }
+
+  ProductStatus:                # enum nominal
+    values: [draft, active, retired]
+
+  Money:                        # value object compuesto
+    fields:
+      amount:   { type: decimal, required: true, constraints: { min: 0, scale: 2 } }
+      currency: { type: string, required: true, constraints: { pattern: "^[A-Z]{3}$" } }
+```
+
+- **Escalar** (`base` + `constraints`): un tipo base con restricciones y nombre de negocio.
+- **Enum nominal** (`values`): conjunto cerrado de valores, reutilizable donde haga falta. Para un enum de un solo uso sigue valiendo el inline en el campo (`type: enum, values: [...]`).
+- **Value object compuesto** (`fields`): varios campos que viajan juntos y no tienen identidad propia (Money, Address). Cómo se persiste (embebido, columnas, tabla) lo decide la capa `persistence` al generar.
+
+Tipos base disponibles: `string`, `text`, `int`, `long`, `decimal`, `boolean`, `uuid`, `date`, `timestamp`, `json`, `file`.
+
+El tipo `json` modela un documento JSON **opaco**: el servicio lo guarda y lo devuelve sin interpretarlo (la acción que pide una pasarela de pago, la configuración de un tercero). En el cable viaja **embebido como valor JSON** (un objeto o un array), nunca como una cadena con el JSON escapado dentro, igual en una respuesta, en el cuerpo de una petición y en el payload de un evento. Si el servicio necesita leer su contenido, no es `json`: es un value object compuesto.
+
+El tipo `file` modela un archivo binario (foto, PDF, adjunto). Exige el atributo `bucket`, que referencia un bucket lógico declarado en la capa [`storage`](storage.md) (`type: file, bucket: productImages`). El campo guarda la referencia al objeto, no el binario en sí; el dónde y cómo se almacena lo decide `storage` (agnóstico del proveedor).
+
+## `entities`
+
+```yaml
+entities:
+  Product:
+    description: Artículo vendible del comercio.
+    fields:
+      id:        { type: uuid, id: true, generated: true }
+      sku:       { type: SKU, required: true, unique: true }
+      name:      { type: string, required: true, constraints: { maxLength: 120 } }
+      price:     { type: Money, required: true }
+      slug:      { type: string, computed: Se deriva del name normalizado a kebab-case. }
+      apiToken:  { type: string, sensitive: true }
+      status:    { type: ProductStatus, default: draft }
+    relations:
+      catalog: { entity: Catalog, cardinality: many-to-one }
+    lifecycle:
+      field: status
+      transitions:
+        draft:   [active, retired]
+        active:  [retired]
+        retired: []
+    invariants:
+      - Un producto active siempre tiene price mayor que cero.
+      - Solo productos active son visibles para consumidores externos.
+
+  Catalog:
+    description: Agrupación comercial de productos.
+    fields:
+      id:   { type: uuid, id: true, generated: true }
+      slug: { type: string, required: true, unique: true }
+      name: { type: string, required: true }
+```
+
+Atributos de campo:
+
+| Atributo | Significado |
+|----------|-------------|
+| `type` | Tipo base, value type de `types`, o `enum` (exige `values`) |
+| `description` | Qué significa el campo en el negocio (prosa, en español); no cambia el contrato |
+| `bucket` | Solo (y obligatorio) con `type: file`: bucket de la capa `storage` donde vive el archivo |
+| `required` | El campo debe tener valor al crear |
+| `unique` | No pueden existir dos registros con el mismo valor |
+| `id` | Identificador de la entidad (exactamente uno por entidad) |
+| `generated` | Lo asigna la infraestructura (ids, timestamps); nunca lo envía el cliente |
+| `computed` | Lo deriva una regla de dominio a partir de otros campos; nunca lo envía el cliente. Excluyente con `generated`. En prosa (la regla es el valor del atributo), o un agregado sobre sus hijas que la entidad recalcula: `{ sum: <relación>.<campo>, times: <campo> }` o `{ count: <relación> }` (DSL 2.31, § `checks` y derivados) |
+| `sensitive` | Nunca sale en outputs ni eventos por defecto; solo si un payload lo pide explícitamente vía `fields` |
+| `personal` | Dato personal del titular (DSL 2.28): una clasificación legal, ortogonal a `sensitive`. De ella se derivan que ningún log ni traza del servidor lleve el valor, lo que vacía una retención con `then: anonymize` y el inventario de datos personales del proyecto generado. Se marca en el campo, no en el tipo: un email puede ser de una persona o de un buzón de la empresa |
+| `default` | Valor si el cliente no lo provee. Sobre un campo `enum` debe ser uno de sus `values` — `keel validate` lo comprueba |
+| `list` | El campo es una **colección** de valores del tipo declarado (`{ type: Discount, list: true }`). Excluyente con `id`, `unique`, `generated` y `type: file` |
+| `compare` | Solo sobre texto: cómo se comparan dos valores — `exact` (por defecto), `ignore-case` o `ignore-case-accents`. En un campo `unique` decide qué es un duplicado (`ACME`, `acme` y `Acmé` lo son con `ignore-case-accents`). Es contrato observable: dilo aquí y no en la prosa de los escenarios, que el generador no lee |
+| `constraints` | `min`, `max`, `minLength`, `maxLength`, `pattern`, `scale` (con `scalePolicy`: `reject` o `round`); con `list`, además `minItems` y `maxItems`. En una entidad son **siempre verdad** (DSL 2.31): rotas por la entrada, `400 VALIDATION_ERROR` en el borde; rotas por un valor que calcula el servidor, `422 INVARIANT_VIOLATED` en la entidad |
+
+**La escala se decide, no se supone.** `scale` dice cuántos decimales tiene un importe; `scalePolicy` dice qué pasa con uno de **entrada** que trae más: `reject` responde `400` (se valida, no se ajusta), `round` lo redondea a la escala. Uno que trae **menos** decimales se rellena con las dos: un `30` con `scale: 2` entra y sale como `30.00`. Las dos son legítimas y ninguna es un default seguro —rechazar rompe al cliente que manda `19.999`, redondear le cambia el importe sin decírselo—, así que un decimal con `scale` que llega a un `input` sin `scalePolicy` abre la obligación `OBL-DECIMAL-SCALE-POLICY`. Se declara donde vive la escala: en el value type (`Price: { base: decimal, constraints: { scale: 2, scalePolicy: reject } }`) o en el campo.
+
+### `checks` y derivados — invariantes que se hacen cumplir (DSL 2.31)
+
+Una invariante en `invariants` es prosa: la hace cumplir el agente donde un escenario la pide, y donde no, nadie. Lo que
+cabe en un vocabulario cerrado se escribe en `checks`, y entonces la **entidad** la comprueba al final de cada mutación
+—constructor, transición o cambio de una hija—, antes de guardar. Una rota responde `422 INVARIANT_VIOLATED`
+(`framework-errors.md`), o el `error` del check si lo nombra.
+
+```yaml
+entities:
+  Payment:
+    checks:
+      - { requires: runningSince, when: { field: status, in: [running] } }            # presente en esos estados
+      - { forbids: customerAction, unless: { field: status, in: [actionRequired] } }  # ausente fuera de esos estados
+      - { field: refundedAmount, op: lte, than: amount, error: REFUND_EXCEEDS_AMOUNT } # campo contra campo
+      - { field: price.amount, op: gt, value: 0, when: { field: status, in: [active] } } # campo contra literal
+      - { exactlyOne: [cart, order] }                                                 # uno de varios presente
+```
+
+| Forma | Qué exige |
+|---|---|
+| `requires: <ruta>` | La ruta está presente |
+| `forbids: <ruta>` | La ruta está ausente |
+| `field` + `op` + `than` | Dos campos de la entidad comparados: `eq`, `ne`, y `lt`, `lte`, `gt`, `gte` solo sobre números e instantes, del mismo tipo |
+| `field` + `op` + `value` | Un campo contra un literal de su tipo |
+| `exactlyOne: [<ruta>, …]` | Exactamente una de las rutas está presente |
+
+- Una **ruta** es un campo de la entidad, un subcampo de uno de sus value objects (`price.amount`) o una relación suya.
+  Una colección hacia otro agregado no está en la entidad (`CHK-DOMAIN-CHECK-FIELD-UNKNOWN`): lo que cruza agregados
+  sigue en `invariants`.
+- **Ausente** es el valor nulo, la lista vacía y la cadena vacía, como `required` en el borde. Un `json` es ausente
+  solo si es nulo: el servidor no puede saber que `{}` significa «nada».
+- Una comparación con un operando **ausente se cumple**, como un `CHECK` de SQL con `NULL`. Si el campo tiene que
+  estar, se dice con `requires`.
+- `when` (aplica si) o `unless` (aplica salvo si) acotan el check a unos estados: un campo `enum` o `boolean` de la propia
+  entidad, con `in: [...]` o `equals`. Sin disyunciones anidadas.
+- Si el check nombra `error`, las operaciones que escriben la entidad lo declaran con su `http`
+  (`CHK-DOMAIN-CHECK-ERROR-UNDECLARED`), y su escenario lo pide `CHK-SCEN-ERROR-UNCOVERED` como el de cualquier error.
+
+Las **cotas** de un campo de la entidad (`constraints`) son también invariantes: se cumplen en cada escritura, no solo en
+el borde. Una cota que el negocio deja romper a propósito —la devolución de stock que puede pasar del máximo de alta— no
+es del dominio: va en los `input` que la necesitan, y la entidad no la lleva (`REV-DOMAIN-BOUND-SERVER-WRITTEN`).
+
+Un **derivado** estructurado es un campo `computed` que agrega las hijas de una relación a-muchos del **mismo agregado**:
+
+```yaml
+  Order:
+    fields:
+      amount:    { type: decimal, constraints: { scale: 2 }, computed: { sum: lines.unitPrice, times: quantity } }
+      lineCount: { type: int, computed: { count: lines } }
+```
+
+La entidad lo recalcula en cada cambio de la relación y se guarda: se puede filtrar y ordenar, y la lectura no lo
+recalcula. La suma usa el tipo del derivado —un `decimal` con su `scale` y `HALF_UP`, un entero exacto— y desbordarlo es
+`INVARIANT_VIOLATED`. Nunca viene del cliente. Lo que no quepa —lo que depende del llamante, lo que cuenta otro agregado,
+otra aritmética— sigue en prosa (`CHK-DOMAIN-COMPUTED-PATH`).
+
+### Nombres reservados
+
+Cinco nombres de campo tienen significado fijado por el método. Ninguno se declara por gusto: cada uno **solo** aparece cuando la capa `persistence` elige la política `declared` del eje correspondiente, y en cualquier otro caso declararlo es un error de validación (con `all` la infraestructura pone la columna sin que se nombre; con `none` no hay columna). Todos llevan `generated: true`: los asigna la infraestructura y nunca vienen del cliente.
+
+| Campo | Tipo | Lo activa | Para qué se declara |
+|---|---|---|---|
+| `lockVersion` | `int` | `consistency.optimisticLocking: declared` | Marca esa **raíz de agregado** como sujeta a bloqueo optimista |
+| `createdAt` / `updatedAt` | `timestamp` | `audit.timestamps: declared` | Registrar cuándo se creó y modificó la fila **y poder proyectarlo** en un `output` |
+| `createdBy` / `updatedBy` | `string` | `audit.authorship: declared` | Ídem para **quién** lo hizo (exige capa `security`) |
+
+La diferencia entre `all` y `declared` no es si la columna existe, sino si el diseño la considera parte del **contrato**: lo que está en `domain` puede salir en un payload; lo que pone la política, no. Ver [persistence.md](persistence.md).
+
+### Colección: ¿`list` o entidad hija?
+
+Las dos formas de tener "varios" en el dominio no son intercambiables — la pregunta que las separa es **si cada elemento tiene identidad propia**:
+
+| El elemento… | Se modela | Ejemplo |
+|---|---|---|
+| No tiene identidad ni ciclo de vida propios; es un **valor** intercambiable, se reemplaza entero | Campo `list: true` sobre un value type o value object | `tags: { type: string, list: true }`, `discounts: { type: Discount, list: true }` |
+| Tiene identidad propia, se referencia, cambia de estado o se consulta por separado | Entidad + `relations` con `cardinality: one-to-many` | `Order` → `OrderLine` |
+
+Si dudas: ¿tiene sentido preguntar *"¿cuál de ellos?"* y responder con un id? Entonces es una entidad hija. Si dos elementos con los mismos valores son indistinguibles, es un `list` de value objects. **No conviertas un value object en entidad solo para poder tener varios** — es la degradación que este atributo evita.
+
+`list` no es válido **dentro** de un value object (sería una colección anidada): saca la colección al campo de la entidad. Tampoco puede apuntar a una entidad — para eso están las `relations`.
+
+## `aggregates` — fronteras de consistencia
+
+Un agregado (DDD) agrupa una entidad **raíz** con las entidades internas que cambian siempre con ella en la misma transacción. Un servicio puede tener varios agregados; cada uno declara su raíz y sus entidades internas:
+
+```yaml
+aggregates:
+  Catalog:
+    description: El catálogo posee sus productos; se modifican juntos.
+    root: Catalog
+    entities: [Product]
+```
+
+Reglas semánticas del agregado:
+
+- La **raíz es el único punto de entrada**: toda operación sobre el agregado pasa por ella.
+- Las **entidades internas no se referencian desde fuera** del agregado; desde otro agregado se referencia solo la raíz, por id.
+- Las **invariantes no cruzan fronteras**: una invariante solo puede depender de campos del propio agregado. La consistencia entre agregados es eventual, vía eventos.
+- El agregado es la **unidad transaccional**: es lo que `persistence` respeta con `transactionalBoundary: per-aggregate`, y con lo que el outbox de `messaging` comparte transacción.
+
+El bloque es **opcional**: un servicio sin `aggregates` se comporta como hasta ahora (cada entidad es su propia frontera implícita). Si el servicio tiene más de una entidad y algunas cambian siempre juntas, decláralo.
+
+`keel validate` comprueba que la raíz y las entidades internas existen, que ninguna entidad pertenece a dos agregados, que la raíz no se repite en `entities`, y avisa si una relación apunta a una entidad interna de otro agregado o si, habiendo agregados, una entidad queda fuera de todos.
+
+## `lifecycle` — ciclo de vida
+
+Máquina de estados de la entidad sobre un campo enum (inline o nominal). **Solo las transiciones listadas son válidas**: el generador deriva las guardas mecánicamente y rechaza cualquier cambio de estado no declarado. Un array vacío marca un estado terminal.
+
+```yaml
+lifecycle:
+  field: status
+  transitions:
+    draft:   [active, retired]
+    active:  [retired]
+    retired: []
+```
+
+`keel validate` comprueba que `field` existe y es enum, que todo estado origen y destino pertenece a los valores del enum, y avisa si un valor del enum no declara sus transiciones.
+
+**Quién ejecuta cada transición se declara en `use-cases`**, con `transitions` en la operación. Aquí vive qué cambios de estado son legales; allí, qué caso de uso los provoca. Los dos lados se contrastan: una operación que pide una arista que este mapa no tiene es error (el guard derivado la rechazaría siempre), y una arista que ninguna operación ejecuta es aviso. Es la diferencia entre una máquina de estados que el diseño sostiene y una lista de estados que nadie recorre.
+
+### `deadlines` — plazos de negocio (DSL 2.26)
+
+Un estado del que la entidad sale **sola** cuando pasa un tiempo, porque el paso del tiempo es, por sí mismo, la causa de la transición: una reserva sin pagar caduca a los 15 minutos, una invitación a los 7 días, un código de verificación a los 10 minutos. La clave es el estado de origen, y un estado tiene como mucho un plazo.
+
+```yaml
+lifecycle:
+  field: status
+  transitions:
+    pending:   [confirmed, expired]
+    confirmed: []
+    expired:   []
+  deadlines:
+    pending:
+      after: { parameter: holdMinutes, unit: minutes }   # o { seconds: 900 }
+      since: heldAt
+      to: expired
+      by: expireReservation
+      lateAction: { error: RESERVATION_EXPIRED }         # o: allow
+```
+
+- **`after`**: cuánto dura el plazo. Segundos literales, o un `service.parameters` de tipo `int` con su unidad (`seconds`, `minutes`, `hours`, `days`) si cada despliegue puede querer otro.
+- **`since`**: el campo `timestamp` desde el que se cuenta. Se elige a propósito: `createdAt` engaña si la entidad puede llegar al estado mucho después de nacer, y entonces hace falta una marca propia que estampe la operación que la lleva al estado.
+- **`to`**: el estado al que pasa cuando vence. Tiene que ser una arista declarada en `transitions`.
+- **`by`**: la operación que caduca **una** entidad. Es un `command` con `internal: true`, cuya entrada lleva el id de la entidad, que declara la transición `<estado> → to` y que **no** tiene `schedule`: no es un barrido, la despacha el cronómetro del servicio una vez por cada entidad vencida. Lo que haga además (emitir un evento, liberar algo) es diseño, y por eso se declara en vez de derivarse.
+- **`lateAction`**: qué pasa con una transición que sale del estado hacia **otro** destino cuando el plazo ya venció pero la caducidad todavía no se ha ejecutado (el cliente paga en el segundo 901 y el cronómetro aún no ha pasado). `{ error: CODE }` la rechaza con ese error en el instante exacto del vencimiento, tarde lo que tarde el cronómetro; `allow` la admite mientras la caducidad no haya pasado. **No tiene default**: rechazar rompe al cliente que llega en el último segundo, y admitir vende lo que el negocio ya daba por caducado. Sin él, `keel validate` lo pregunta (`CHK-DOMAIN-DEADLINE-LATE-UNDECIDED`, sin aceptación posible), y el `code` lo tienen que declarar en sus `errors` las operaciones que sacan a la entidad del estado.
+
+Hasta que pasa la caducidad, una lectura devuelve el estado **guardado** (`pending`): el estado efectivo calculado al leer no está en 2.26.
+
+No es lo mismo que los otros dos relojes del método. `stalledAfter` (en `use-cases`) rescata una fila que una réplica dejó **en vuelo**: recuperación, no negocio. `reconciledBy` (en `dependencies`) detecta un proveedor que **no contestó**. Un plazo es una regla del negocio sobre el estado, y se declara junto a la máquina de estados porque es ahí donde vive lo que es legal.
+
+Las **invariantes** quedan para las reglas que no se pueden expresar como transición (condiciones sobre otros campos, reglas cruzadas). Escritas en lenguaje natural declarativo y verificable: el generador las traduce a validaciones; el humano las revisa como frases.
+
+## Qué NO va aquí
+
+- Cómo se persisten las entidades (índices, claves naturales, VO embebidos o en tabla) → capa `persistence`.
+- Cómo se aplica la frontera transaccional del agregado → capa `persistence` (`transactionalBoundary: per-aggregate`); aquí solo se declara la frontera.
+- Qué operaciones las manipulan → capa `use-cases` (y qué transición ejecuta cada una, con `transitions`).
+- Qué campos devuelve cada operación → forma del payload en `use-cases` (`exclude`); aquí solo se marca lo estructural (`sensitive`).

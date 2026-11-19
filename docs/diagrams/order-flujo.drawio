@@ -1,0 +1,28 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="order-flujo" name="order - flujo">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1480" pageHeight="540" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="&lt;b&gt;order: ciclo de vida de un pedido&lt;/b&gt;" style="text;html=1;align=left;verticalAlign=top;fontSize=20;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="30" y="10" width="760" height="40" as="geometry"/></mxCell>
+        <mxCell id="pp" value="pendingPayment" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="40" y="190" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="a" value="authorized" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="330" y="90" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="pd" value="paid" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="600" y="90" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="ar" value="actionRequired" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="330" y="300" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="cg" value="canceling" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="700" y="300" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="cd" value="canceled" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="900" y="190" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="pf" value="paymentFailed" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="330" y="430" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="note" value="order refleja de forma simplificada el cobro de payment: le basta con saber que está&lt;br&gt;authorized hasta que llega PaymentCaptured. paid, canceled y paymentFailed son terminales.&lt;br&gt;Si payment rechaza una anulación, el pedido vuelve al estado anterior. Un rechazo de&lt;br&gt;tarjeta no es un error HTTP: el pedido se crea y queda en paymentFailed." style="rounded=1;arcSize=6;dashed=1;align=left;spacingLeft=12;whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;fontSize=14;fontColor=#232F3E;" vertex="1" parent="1"><mxGeometry x="700" y="400" width="720" height="110" as="geometry"/></mxCell>
+        <mxCell id="e2" value="cobro autorizado" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="pp" target="a"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e3" value="3DS" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="pp" target="ar"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e4" value="cobro rechazado" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="pp" target="pf"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="125" y="460"/></Array></mxGeometry></mxCell>
+        <mxCell id="e5" value="cancelar" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="pp" target="cd"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e6" value="3DS completado" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="ar" target="a"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e7" value="3DS falla" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="ar" target="pf"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e8" value="cancelOrder" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="ar" target="cg"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e9" value="PaymentCaptured" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="a" target="pd"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e10" value="cancelar" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="a" target="cd"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+        <mxCell id="e11" value="" style="html=1;endArrow=block;strokeColor=#444444;strokeWidth=1.5;fontSize=12;" edge="1" parent="1" source="cg" target="cd"><mxGeometry relative="1" as="geometry"></mxGeometry></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

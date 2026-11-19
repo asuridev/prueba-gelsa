@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/2.0/dependencies.schema.json",
+  "title": "Keel Dependencies Layer",
+  "description": "Servidores de los que este servicio depende, de las dos maneras en que se puede depender: leyendo un dato ajeno (needs) o pidiéndole que haga algo (activations). Esta capa REFERENCIA a las demás (http-clients, messaging, domain, use-cases); nunca las redeclara.",
+  "type": "object",
+  "required": ["dependencies"],
+  "additionalProperties": false,
+  "properties": {
+    "dependencies": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Un bloque por servidor proveedor, nombrado como el servicio del que se depende.",
+      "propertyNames": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/kebabName" },
+      "additionalProperties": { "$ref": "#/$defs/dependency" }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "anyOf": [{ "required": ["needs"] }, { "required": ["activations"] }],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "contract": {
+          "type": "object",
+          "required": ["version"],
+          "additionalProperties": false,
+          "description": "Contrato publicado del proveedor al que este diseño se acopla. Opcional: hay proveedores que aún no publican INTEGRATION.md.",
+          "properties": {
+            "version": {
+              "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/semver",
+              "description": "Versión del contrato del proveedor a la que este diseño se acopla. Romperla rompe este servicio."
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Procedencia del contrato (ruta relativa al workspace o URL). Informativo: ni la validación ni los generadores lo resuelven."
+            }
+          }
+        },
+        "needs": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Cada dato ajeno que este servicio necesita de este proveedor para decidir.",
+          "propertyNames": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName" },
+          "additionalProperties": { "$ref": "#/$defs/need" }
+        },
+        "activations": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Cada trabajo que este servicio le pide al proveedor. No se lee un dato: se le pide que actúe, y por eso este diseño se acopla a su contrato de ENTRADA (el §Endpoints o §Suscripciones de su INTEGRATION.md).",
+          "propertyNames": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName" },
+          "additionalProperties": { "$ref": "#/$defs/activation" }
+        },
+        "compensations": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Eventos ante los que este servicio deshace lo que hizo contra el proveedor. La operación que se dispara vive en messaging.subscriptions.<evento>.triggers; aquí solo se referencia el evento.",
+          "items": {
+            "type": "object",
+            "required": ["onEvent"],
+            "additionalProperties": false,
+            "properties": {
+              "onEvent": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/typeName",
+                "description": "Evento consumido (debe existir en messaging: subscriptions)."
+              },
+              "undoes": {
+                "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName",
+                "description": "Activación de este mismo proveedor que se deshace (debe existir en activations). Opcional porque no toda compensación revierte una activación declarada, pero declararla es lo que hace verificable el par hacer/deshacer."
+              },
+              "description": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "need": {
+      "type": "object",
+      "required": ["usedBy", "strategy"],
+      "additionalProperties": false,
+      "properties": {
+        "description": { "type": "string" },
+        "usedBy": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Operaciones de este servicio que necesitan el dato para decidir (deben existir en use-cases: operations).",
+          "items": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName" }
+        },
+        "exposedAs": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Nombre del campo con el que este dato ajeno viaja en la SALIDA de todas las operaciones de usedBy. Sin él, el dato solo sirve para decidir y no sale del servicio. Su forma NO se declara aquí: sale de response.fields de la llamada de fetchedFrom (on-demand) o de la entidad réplica (replicated). Es siempre opcional en el contrato: si la llamada declara fallback, o la réplica onMiss degrade, el dato puede faltar y el campo llega nulo."
+        },
+        "strategy": {
+          "type": "string",
+          "enum": ["on-demand", "replicated"],
+          "description": "Dónde vive la verdad que se lee al decidir. on-demand: se pide al proveedor en el momento (siempre vigente, pero sin proveedor no se opera). replicated: se mantiene una copia local alimentada por sus eventos (se opera con el proveedor caído, a cambio de consistencia eventual)."
+        },
+        "fetchedFrom": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/httpCallRef",
+          "description": "Llamada de http-clients que resuelve el dato. Es la vía única con on-demand, y la vía de rescate con replicated + onMiss.action fetch."
+        },
+        "onUnavailable": {
+          "$ref": "#/$defs/onUnavailable",
+          "description": "Qué pasa cuando el proveedor no contesta y el dato no se puede leer. Es la mitad que faltaba: una activación declara su onFailure y una réplica su onMiss, pero un dato que se pide al proveedor no tenía dónde decir qué ve el cliente cuando esa llamada falla — la respuesta acababa en la prosa del fallback de http-clients, que es capa técnica y que ningún generador puede aplicar. Aplica también con replicated + onMiss fetch: si el rescate falla, sigue sin haber dato."
+        },
+        "replica": { "$ref": "#/$defs/replica" }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["onUnavailable"] },
+          "then": { "required": ["fetchedFrom"] }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "on-demand" } }, "required": ["strategy"] },
+          "then": {
+            "required": ["fetchedFrom"],
+            "not": { "required": ["replica"] }
+          }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "replicated" } }, "required": ["strategy"] },
+          "then": { "required": ["replica"] }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": ["replica"],
+            "properties": {
+              "replica": {
+                "type": "object",
+                "required": ["onMiss"],
+                "properties": {
+                  "onMiss": {
+                    "type": "object",
+                    "required": ["action"],
+                    "properties": { "action": { "const": "fetch" } }
+                  }
+                }
+              }
+            }
+          },
+          "then": { "required": ["fetchedFrom"] }
+        }
+      ]
+    },
+    "activation": {
+      "type": "object",
+      "required": ["triggeredBy", "via", "effect"],
+      "additionalProperties": false,
+      "description": "Trabajo que este servicio le pide al proveedor. Es la otra forma de depender: no se lee un dato, se activa a otro, y por eso obliga a conocer su firma de entrada.",
+      "properties": {
+        "description": { "type": "string" },
+        "triggeredBy": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Operaciones de este servicio que la disparan (deben existir en use-cases: operations). Es el único enlace del DSL entre un caso de uso y el trabajo que delega.",
+          "items": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName" }
+        },
+        "via": {
+          "description": "Canal por el que se activa: una llamada saliente de http-clients, o un evento propio de messaging: publishing. La firma que viaja por él la fija el PROVEEDOR, no este diseño.",
+          "oneOf": [
+            { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/httpCallRef" },
+            {
+              "type": "object",
+              "required": ["publishes"],
+              "additionalProperties": false,
+              "properties": {
+                "publishes": {
+                  "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/typeName",
+                  "description": "Evento propio (debe existir en messaging: publishing.events) cuyo payload cumple lo que el proveedor exige para actuar."
+                },
+                "description": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "effect": {
+          "type": "string",
+          "minLength": 10,
+          "description": "Qué hace el proveedor cuando se le activa, en lenguaje de negocio (ej. 'sale un correo de confirmación hacia el comprador'). Sin efecto declarado, una activación es una llamada que nadie pidió."
+        },
+        "awaits": {
+          "type": "string",
+          "enum": ["outcome", "acknowledgement", "nothing"],
+          "default": "acknowledgement",
+          "description": "Qué necesita saber la operación propia. outcome: el resultado del trabajo, y no puede continuar sin él. acknowledgement: que el proveedor lo aceptó, no que lo terminó. nothing: se delega y se sigue. Es una decisión de negocio: determina si el trabajo ajeno puede fallar sin que se entere nadie.",
+          "$comment": "outcome exige un canal síncrono: publicar un evento no devuelve resultado. Lo comprueba crossrefs."
+        },
+        "reconciledBy": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName",
+          "description": "Operación propia (con `schedule`) que barre los encargos de esta activación que nunca recibieron desenlace. Es la pata del SILENCIO: una compensación se dispara ante un evento, y si el proveedor cae, pierde el mensaje o ni siquiera sabe que falló, ese evento no llega nunca y nada lo detecta. Sin esto, el único final posible de un encargo perdido es que lo note una persona."
+        },
+        "unansweredAfterSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Cuánto silencio del proveedor se tolera antes de que el barrido vuelva a insistir: un encargo de esta activación sin desenlace pasado ese tiempo es candidato. Es una decisión de negocio y de acuerdo con el proveedor —cuánto tarda razonablemente en contestar—, no una constante de implementación, y va POR ACTIVACIÓN porque un mismo barrido puede reconciliar varias y cada proveedor tarda lo suyo. Sin declararlo, el número lo elige quien construye: por debajo, el barrido insiste antes de que al proveedor le haya dado tiempo; por encima, un encargo perdido tarda de más en detectarse. Solo válido junto a reconciledBy.",
+          "$comment": "El generador lo emite como parámetro con override por entorno (mismo trato que cache.ttlSeconds): el diseño fija el valor, el entorno puede moverlo sin recompilar."
+        },
+        "awaitingSince": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Campo de la entidad que dice DESDE CUÁNDO cuenta el reloj del barrido. El estado dice que espera; esto dice cuánto lleva, y sin ello el umbral de unansweredAfterSeconds no se puede aplicar a nada. Tiene que ser un campo propio, estampado al entrar en la espera por la operación que encarga, y que no toque nadie más: createdAt es cuándo nació la entidad (una reserva se crea y se confirma horas después, y el barrido cancelaría un encargo de hace treinta segundos) y un updatedAt de auditoría REJUVENECE con cualquier otra escritura, dejando la entidad invisible al barrido para siempre — el fallo que pasa las pruebas y no se acaba nunca en producción. En la variante de DERIVA, donde no se espera un desenlace sino que se revalida una creencia que envejece, el campo es la última revalidación (lastScannedAt) y no una espera: por eso lo nombra el diseño en vez de derivarse de la activación. Obligatorio junto a reconciledBy.",
+          "$comment": "crossrefs comprueba que exista en la entidad que queda esperando, que sea timestamp y que no lo gestione audit. La convención de nombre recomendada sigue siendo <activacion>AwaitingSince: el prefijo evita que dos activaciones de la misma entidad compartan marca."
+        },
+        "onFailure": { "$ref": "#/$defs/onFailure" }
+      },
+      "allOf": [
+        {
+          "if": { "type": "object", "required": ["unansweredAfterSeconds"] },
+          "then": { "required": ["reconciledBy"] }
+        },
+        {
+          "if": { "type": "object", "required": ["reconciledBy"] },
+          "then": { "required": ["awaitingSince"] }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": ["via"],
+            "properties": { "via": { "type": "object", "required": ["client"] } }
+          },
+          "then": { "required": ["onFailure"] }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": ["via"],
+            "properties": { "via": { "type": "object", "required": ["publishes"] } }
+          },
+          "then": { "not": { "required": ["onFailure"] } }
+        }
+      ]
+    },
+    "onFailure": {
+      "type": "object",
+      "required": ["action"],
+      "additionalProperties": false,
+      "description": "Qué hace la operación propia cuando la activación no sale. Es comportamiento observable en su API, por eso cada acción obliga a declarar su consecuencia de negocio. Solo aplica a la activación síncrona: con un evento, la entrega la garantiza el outbox.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["fail", "degrade", "ignore"],
+          "description": "fail: la operación propia falla con el error declarado y no deja rastro del trabajo pedido. degrade: continúa con el resultado degradado que se describe. ignore: continúa como si nada; solo es honesto cuando el negocio no cuenta con ese trabajo."
+        },
+        "error": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/errorCode",
+          "description": "Error con el que falla la operación (alguna operación de use-cases debe declararlo). Obligatorio y exclusivo de action fail."
+        },
+        "degradedTo": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Qué resultado obtiene el cliente cuando el trabajo no se pide, en prosa. Obligatorio y exclusivo de action degrade."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "fail" } }, "required": ["action"] },
+          "then": {
+            "required": ["error"],
+            "not": { "required": ["degradedTo"] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "degrade" } }, "required": ["action"] },
+          "then": {
+            "required": ["degradedTo"],
+            "not": { "required": ["error"] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "ignore" } }, "required": ["action"] },
+          "then": {
+            "not": { "anyOf": [{ "required": ["error"] }, { "required": ["degradedTo"] }] }
+          }
+        }
+      ]
+    },
+    "replica": {
+      "type": "object",
+      "required": ["entity", "keyField", "fedBy", "onMiss"],
+      "additionalProperties": false,
+      "description": "Copia local del dato ajeno. La entidad y sus campos se declaran en domain, y su almacenamiento en persistence: aquí solo se declara que esa entidad es una réplica, de quién y cómo se mantiene.",
+      "properties": {
+        "entity": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/typeName",
+          "description": "Entidad de domain que materializa la copia. No es fuente de verdad."
+        },
+        "keyField": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/operationName",
+          "description": "Campo de esa entidad que correlaciona la copia con el identificador del proveedor."
+        },
+        "fedBy": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Eventos del proveedor que mantienen la copia al día (deben existir en messaging: subscriptions). Deben cubrir TODAS las vías de cambio del dato, incluidas bajas y retiradas.",
+          "items": { "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/typeName" }
+        },
+        "freshness": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Tolerancia de negocio a leer un dato viejo, en prosa (ej. 'un precio de hasta cinco minutos vale para cotizar; para cobrar, no'). Nunca un número: un umbral cuantificado es una decisión de implementación."
+        },
+        "onMiss": { "$ref": "#/$defs/onMiss" }
+      }
+    },
+    "onUnavailable": {
+      "type": "object",
+      "required": ["action"],
+      "additionalProperties": false,
+      "description": "Política de este servicio cuando el proveedor del dato no está disponible. Mismo vocabulario que onMiss y onFailure, más una acción propia: servir el último valor conocido. Es comportamiento observable en la API, así que cada acción obliga a declarar su consecuencia.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["fail", "degrade", "lastKnown"],
+          "description": "fail: la operación falla con el error declarado. degrade: continúa con el resultado degradado que se describe. lastKnown: se sirve el último valor que este servicio llegó a leer, mientras no supere maxAgeSeconds; superada esa edad no hay nada que servir y se falla con el error declarado."
+        },
+        "error": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/errorCode",
+          "description": "Error con el que falla la operación (alguna operación de usedBy debe declararlo). Obligatorio con action fail y con action lastKnown —ahí es el desenlace cuando no queda ningún valor lo bastante fresco—, y vetado con degrade."
+        },
+        "degradedTo": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Qué resultado obtiene el cliente cuando el dato no se puede leer, en prosa. Obligatorio y exclusivo de action degrade. Un resultado degradado que el cliente no puede distinguir del normal no es degradación: es un dato falso."
+        },
+        "maxAgeSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Edad máxima del último valor conocido que sigue siendo aceptable servir. Obligatorio y exclusivo de action lastKnown. El número solo se declara porque viene con su consecuencia: sin él, servir el último valor conocido no tiene final —un precio de hace tres días se sirve igual que uno de hace un minuto, y nadie decidió eso.",
+          "$comment": "No confundir con replica.freshness, que es prosa a propósito: allí la antigüedad la produce la latencia de los eventos del proveedor y no la controla este servicio. Aquí la ventana la decide y la aplica este servicio, y es observable en su respuesta."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "fail" } }, "required": ["action"] },
+          "then": {
+            "required": ["error"],
+            "not": { "anyOf": [{ "required": ["degradedTo"] }, { "required": ["maxAgeSeconds"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "degrade" } }, "required": ["action"] },
+          "then": {
+            "required": ["degradedTo"],
+            "not": { "anyOf": [{ "required": ["error"] }, { "required": ["maxAgeSeconds"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "lastKnown" } }, "required": ["action"] },
+          "then": {
+            "required": ["maxAgeSeconds", "error"],
+            "not": { "required": ["degradedTo"] }
+          }
+        }
+      ]
+    },
+    "onMiss": {
+      "type": "object",
+      "required": ["action"],
+      "additionalProperties": false,
+      "description": "Qué hace el servicio cuando la copia todavía no tiene el dato. Es comportamiento observable en su API, por eso cada acción obliga a declarar su consecuencia de negocio.",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["fetch", "fail", "degrade"],
+          "description": "fetch: se pide al proveedor por fetchedFrom. fail: la operación falla con el error declarado. degrade: la operación continúa con un resultado degradado."
+        },
+        "error": {
+          "$ref": "https://keel.dev/schema/2.0/common.schema.json#/$defs/errorCode",
+          "description": "Error con el que falla la operación (alguna operación de use-cases debe declararlo). Obligatorio y exclusivo de action fail."
+        },
+        "degradedTo": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Qué resultado obtiene el cliente cuando el dato falta, en prosa. Obligatorio y exclusivo de action degrade."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "action": { "const": "fail" } }, "required": ["action"] },
+          "then": {
+            "required": ["error"],
+            "not": { "required": ["degradedTo"] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "degrade" } }, "required": ["action"] },
+          "then": {
+            "required": ["degradedTo"],
+            "not": { "required": ["error"] }
+          }
+        },
+        {
+          "if": { "properties": { "action": { "const": "fetch" } }, "required": ["action"] },
+          "then": {
+            "not": { "anyOf": [{ "required": ["error"] }, { "required": ["degradedTo"] }] }
+          }
+        }
+      ]
+    }
+  }
+}

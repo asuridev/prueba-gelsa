@@ -1,0 +1,235 @@
+# Capa `security` — autenticación y autorización (opcional)
+
+Archivo: `specs/<servicio>/security.keel.yaml` · Schema: [`schema/security.schema.json`](../../schema/security.schema.json)
+
+Integración con el servidor de autenticación y reglas de acceso. Agnóstica del proveedor: se declara el protocolo (`oidc`, `jwt`, `api-key`), nunca el producto (Keycloak, Auth0…). Las reglas se declaran **por operación** — el nombre es estable aunque cambien las rutas.
+
+Si el servicio declara capa `api` sin capa `security`, `keel validate` emite un warning.
+
+```yaml
+authentication:
+  protocol: oidc                 # oidc | jwt | api-key | none
+  tokenLocation: header
+
+roles:
+  catalog-admin:  { description: Gestiona el catálogo completo. }
+  catalog-reader: { description: Solo consulta el catálogo. }
+
+permissions:
+  product:write: { description: Crear y mutar productos. }
+  product:read:  { description: Leer productos. }
+
+roleGrants:
+  catalog-admin: [product:write, product:read]
+  catalog-reader: [product:read]
+
+access:
+  default: { level: required, permissions: [product:read] }
+  rules:
+    createProduct: { level: required, permissions: [product:write] }
+    retireProduct: { level: admin, roles: [catalog-admin] }
+    listProducts:  { level: public }
+```
+
+- `access.default` cubre toda operación sin regla explícita; `rules` la sobrescribe por operación.
+- `level`: `public` (sin token), `optional` (con identidad si llega un token; ver § Identidad opcional), `required` (token válido), `admin` (token + privilegio elevado), `service` (token de cliente máquina; ver más abajo).
+- `roles` y `permissions` son catálogos: toda referencia desde `access` o `roleGrants` debe existir en ellos.
+- Permisos en formato `recurso:accion` (`product:write`); roles en kebab-case.
+- Principio de mínimo privilegio: la skill `/keel-validate` revisa que ningún rol acumule permisos que no use.
+
+## Identidad del llamante (`authentication.callerIdentity`)
+
+Quién pide el trabajo — no si puede pedirlo (eso es `access`), sino **en nombre de qué recurso** lo pide.
+
+```yaml
+authentication:
+  protocol: oidc
+  callerIdentity:
+    field: applicationCode          # el campo del input que la recibe, YA resuelta
+    from: { source: serviceClient } # el cliente máquina de la credencial identifica al recurso
+    # from: { source: claim, name: tenant }   # o un claim que puebla el proveedor
+```
+
+**Una credencial o varias.** Con `serviceClient`, la correspondencia por defecto es **1:1**: la
+entrada de `serviceClients` *es* el identificador del recurso. Cuando un mismo recurso tiene
+**varias** credenciales —el sistema que pide envíos y su pipeline de despliegue, por ejemplo— hay
+que decirlo, porque el generador no lo puede adivinar:
+
+```yaml
+callerIdentity:
+  field: applicationKey
+  from:
+    source: serviceClient
+    resolvedBy: Application.credentialKeys   # Entidad.campo, y el campo es una LISTA
+```
+
+`resolvedBy` apunta a un campo del dominio que **tiene que ser una lista**; sobre un escalar sería
+la forma 1:1 escrita de otra manera, y `keel validate` lo da en rojo. Con él, el generador emite
+la búsqueda por elemento de la colección y se lo dice al implementador; sin él emite la búsqueda
+por la clave natural, que es lo correcto en el caso 1:1.
+
+> **Lo que pasa si la relación es 1:N y no se declara.** Nada, hasta que llega una credencial que
+> no coincide con la clave natural: entonces no resuelve a ningún recurso y el servicio responde
+> **403 en el camino feliz**. La relación queda escrita solo en la `description` de un campo, que
+> no es estructura y nadie puede leer. Ocurrió, y costó nueve escenarios y cinco clases enteras.
+
+- Es el **hermano** de `messaging.subscriptions.<E>.identity`: el mismo hecho por la otra puerta. Si una operación entra por las dos, **las dos tienen que nombrar el mismo `field`** — dos campos son dos verdades, y la operación decidiría con uno u otro sin saberlo. `keel validate` lo da en rojo.
+- El campo **deja de viajar en el cuerpo** de la petición: lo estampa el servidor, igual que un campo `generated`. Quien hace la petición es justamente quien no debería poder elegir en nombre de quién actúa, así que no hay nada que comprobar ni ningún error de inconsistencia que declarar.
+- La resolución vive en **un solo punto**. Cambiar de la credencial a un claim son dos líneas y no toca dominio, casos de uso ni esquema.
+- Sin este bloque, un servicio que resuelve el inquilino por la credencial deja esa resolución en la prosa de una `rule`, y cada implementación la inventa: el dato acaba llegando del cuerpo o duplicado en dos campos que alguien tiene que reconciliar a mano.
+
+## Alcance por recurso (`authentication.scoping`)
+
+`roles`, `permissions` y `scopes` son **globales**: quien pasa la regla de acceso, pasa para **todos** los recursos. Un servicio multi-inquilino necesita además acotar al recurso concreto, y eso no cabe en `access` — una regla de acceso decide si puedes ejecutar la operación, no sobre qué filas.
+
+```yaml
+authentication:
+  protocol: oidc
+  scoping:
+    claim: applications          # el claim del token con los recursos que alcanza el titular
+    over: Application.code       # qué identifica al recurso acotado (Entidad.campo de domain)
+    error: APPLICATION_FORBIDDEN # el code del rechazo: es contrato público
+    exemptRoles: [catalog-admin] # roles transversales, que NO se acotan
+    exemptClients: [search-indexer] # clientes máquina que leen cualquier recurso (2.21)
+```
+
+- `over` apunta a una entidad y un campo **que existen en `domain`**, y es el dato que las operaciones acotadas reciben.
+- `error` es un `code` que alguna operación tiene que declarar en sus `errors` (con su `403` y su `when`): ahí es donde vive el contrato. Declarar el alcance sin su error es un **error de validación**.
+- `exemptRoles` se enumera uno a uno. La exención es la parte peligrosa —un rol exento alcanza cualquier recurso— y no puede quedar implícita.
+- `exemptClients` (2.21) es lo mismo para los clientes máquina: cada entrada tiene que estar en `serviceClients`. Un cliente máquina no representa a un inquilino y su token no lleva el claim del alcance, así que si no lo declaras exento recibe el error del alcance en todo recurso acotado. La exención es **solo del alcance**: el cliente sigue pasando por las reglas de acceso (sus `scopes`). El generador lo reconoce en el token por el identificador del cliente de la credencial —el mismo criterio que `callerIdentity` con `source: serviceClient`—.
+- **Sin este bloque**, un 403 declarado sobre una operación protegida por rol describe una discriminación que nada evalúa: `keel validate` lo avisa, el generador emite el código igual, y el servidor acaba sirviendo a cualquier titular del rol los recursos de todos los inquilinos.
+- Qué recurso alcanza cada usuario **de prueba** no es del diseño: el generador siembra el proveedor de identidad con un valor convencional y lo publica para el arnés (en keel-spring, `AUTH_SCOPED_RESOURCE` de `infra/test-credentials.env`).
+- **Las lecturas** se acotan por construcción con `reads` y `readMiss` (2.27, § Lecturas acotadas). Las **escrituras** acotadas siguen comprobándose en el handler, con su `rule`: el DSL declara de dónde sale el alcance y el generador deja la nota.
+
+## Autorización por propietario (`ownership`, 2.23)
+
+`scoping` acota por un claim **del token**. Lo que muchos servicios necesitan es acotar por un campo **del recurso**: «solo el autor edita o borra su artículo», «solo el agente que abrió el ticket lo cierra». Eso es `ownership`:
+
+```yaml
+authentication:
+  protocol: oidc
+  callerIdentity:
+    field: callerSubject
+    from: { source: claim, name: sub }
+
+ownership:
+  Article:
+    owner: author.subject        # la relación author lleva a Profile, cuyo subject es el titular
+    error: NOT_ARTICLE_AUTHOR    # el 403 que declara cada operación de la lista
+    operations: [updateArticle, deleteArticle]
+  Comment:
+    owner: author.subject
+    error: NOT_COMMENT_AUTHOR
+    operations: [deleteComment]
+    exemptRoles: [moderator]     # opcional: roles que operan sobre cualquier recurso
+```
+
+- `owner` dice dónde está el dueño **desde la entidad**: un campo suyo (`openedBy`), o relaciones `many-to-one`/`one-to-one` hasta un campo de otra (`author.subject`). Ese campo guarda el mismo valor que estampa `callerIdentity`, y es contra él con lo que se compara: nunca contra algo que mande el cliente.
+- Exige `authentication.callerIdentity`, y que cada operación de `operations` reciba su campo en el input: sin saber quién llama no hay nada que comparar.
+- `operations` es para las **escrituras**: una query ahí es un error (`CHK-SECURITY-OWNERSHIP-QUERY-IN-OPERATIONS`), porque la nota del handler no filtra un listado ni impide un `findById` que se la salte. Las lecturas van en `reads` (§ Lecturas acotadas).
+- `error` es un `code` que cada operación de la lista declara en sus `errors` con `http: 403`; ahí viven su `when` y su status, que son contrato público. Un 403 de propiedad así declarado cierra `OBL-RESOURCE-SCOPE` para esa operación.
+- `exemptRoles` se enumera uno a uno, como en `scoping`: la exención es la parte peligrosa.
+- **El orden lo deciden las reglas de la operación**: si el recurso no existe es su 404, y si existe y no es tuyo, este 403. La comprobación la escribe el handler; el generador le deja la nota con la entidad, el camino al dueño, el campo del llamante y el `code`.
+- En las pruebas, dos personas distintas: el arnés emite `tokenAs(sub)` cuando la identidad del llamante es el claim `sub` (con Keycloak), haya roles o no.
+
+## Clientes máquina (M2M)
+
+Cuando otros servidores consumen endpoints del servicio (capa `api` con `audience: services` o `both`), la seguridad se modela con tres piezas:
+
+```yaml
+authentication:
+  protocol: oidc
+  serviceAuth:                    # cómo se autentican los clientes máquina
+    protocol: client-credentials  # client-credentials | api-key
+    validateAudience: true        # exige que el claim aud incluya la audiencia del servicio
+    audience: product-service     # opcional; por defecto, el nombre del servicio
+
+serviceClients:                   # catálogo de servicios consumidores reconocidos
+  billing-service: { description: Consulta precios para facturar., scopes: [product:read] }
+
+access:
+  rules:
+    getProductPrice: { level: service, scopes: [product:read] }
+```
+
+- `serviceAuth` es obligatorio si hay endpoints `services`/`both` o `serviceClients` (lo valida `keel validate`). `client-credentials` es el flujo OAuth2 para máquinas (nunca tokens de usuario); `api-key` es la alternativa simple.
+- **Los scopes reutilizan el catálogo `permissions`**: `permissions` es el catálogo único de capacidades del servicio; `accessRule.permissions` las exige a usuarios humanos y `scopes` a clientes máquina. No hay catálogo de scopes aparte.
+- `serviceClients` declara cada consumidor y los scopes que se le conceden (mínimo privilegio por cliente). El proveedor concreto (Keycloak, Cognito…) materializa cada entrada como cliente `client_credentials` al generar.
+- `level: service` sin `scopes` acepta cualquier cliente autenticado (warning de `keel validate`); combínalo con `validateAudience: true` para que solo valgan tokens emitidos para este servicio.
+
+## CORS (consumo desde el navegador)
+
+El bloque `cors` declara que el servicio se consume desde un origen web. Solo hace falta si un navegador llama a la API directamente: sin él, el servidor generado rechaza toda petición cross-origin (el preflight muere en la cadena de seguridad).
+
+```yaml
+cors:
+  description: Consumido desde el navegador por la SPA de back-office.
+  allowCredentials: false
+  allowedHeaders: [Authorization, Content-Type, Idempotency-Key]
+  exposedHeaders: [X-Correlation-Id]
+  maxAgeSeconds: 3600
+```
+
+- **Los orígenes permitidos no se declaran aquí.** Son URLs de despliegue, no diseño: cambian por ambiente y no deben obligar a regenerar. El generador los expone como configuración del servicio (en Spring, la variable `SECURITY_CORS_ALLOWED_ORIGINS`, obligatoria fuera de local).
+- **Los métodos tampoco**: se derivan de los endpoints declarados en la capa `api`, más `OPTIONS` para el preflight.
+- `allowCredentials: true` es obligatorio si `authentication.tokenLocation` es `cookie` (lo valida `keel validate`); con token en `Authorization` déjalo en `false`.
+- `exposedHeaders` es lo que el navegador deja **leer** de la respuesta: normalmente solo cabeceras propias (correlación, paginación).
+
+Requiere capa `api`: CORS sin HTTP entrante no significa nada (error de `keel validate`).
+
+## Lecturas acotadas (`reads` y `readMiss`, 2.27)
+
+`scoping` y `ownership` dicen quién puede **ejecutar** una operación sobre un recurso. Una lectura necesita además decir qué **filas** ve cada uno, y si eso queda en una `rule` en prosa, olvidarlo no rompe ninguna prueba de un solo llamante: el listado sirve a cualquier titular del rol las filas de todos (OWASP API1, BOLA). Con `reads`, el filtro va en el **adaptador generado** —el listado, la página con su total y la lectura por id—, y el handler solo pasa el alcance que construyó el borde:
+
+```yaml
+authentication:
+  scoping:
+    claim: vaults
+    over: Owner.code
+    error: ASSET_OUT_OF_SCOPE
+    exemptRoles: [vault-admin]
+    reads: [getAsset, listAssets]   # Asset.owner → Owner.code ∈ claim vaults
+    readMiss: forbidden             # not-found | forbidden, sin default
+
+ownership:
+  OrderMain:
+    owner: buyerEmail
+    error: ORDER_NOT_OWNED
+    operations: [cancelOrder]       # las escrituras, como en 2.23
+    reads: [getOrder, listOrders]   # OrderMain.buyerEmail = identidad del llamante
+    readMiss: forbidden
+    exemptRoles: [employee, manager]
+```
+
+- Cada entrada de `reads` es una **query expuesta** que devuelve la entidad acotada (única, lista o página). Con `ownership`, la de la regla; con `scoping`, cualquier entidad desde la que haya **un solo** camino de relaciones `many-to-one`/`one-to-one` hasta la entidad de `over` (se deriva: `Asset.owner → Owner.code`).
+- Su regla de acceso es `required` o `admin`: con `public` u `optional`, sin token no hay a quién acotar, y con `service` el llamante es una máquina.
+- **Un claim ausente es un conjunto vacío**, y entonces no se ve nada. Solo los exentos (`exemptRoles`, `exemptClients`) ven todo.
+- El filtro se suma a los filtros de la búsqueda (`filter`, `where`) y **también al conteo** de la página: el total no revela filas ajenas.
+- `readMiss` decide qué recibe quien pide **por id** una fila que no es suya: `not-found`, el 404 de la operación, que no revela que la fila existe; `forbidden`, el `error` del bloque con 403 (después del 404 de una fila inexistente). No tiene default porque las dos son legítimas, y la lectura declara en sus `errors` el que elija.
+- Una lectura en caché guarda una entrada por alcance: dos llamantes distintos no comparten la respuesta.
+- `reads: []` es una decisión: ninguna lectura de ese bloque se acota por construcción (un catálogo que lee cualquiera, donde la propiedad solo acota la edición). **Sin la clave**, cada query expuesta que alcanza la entidad acotada abre `OBL-READ-SCOPE-UNDECIDED`, que se cierra con `reads` o se acepta por operación en `decisions.yaml`.
+- Desde otra puerta (un evento, un despacho, el reloj) la lectura no se acota: el alcance es del llamante HTTP.
+
+## Identidad opcional (`level: optional`, 2.27)
+
+Una lectura pública que se **personaliza** si llega un token («¿lo tengo en favoritos?») no es `public` —que ignora el token— ni `required` —que rechaza al anónimo—:
+
+```yaml
+access:
+  rules:
+    getArticle: { level: optional }
+```
+
+- Sin token, la operación se ejecuta como pública y la identidad del llamante (el campo de `callerIdentity`) llega nula; por eso ese campo no puede ser `required` en su input.
+- Con un token válido, hay identidad.
+- Con un token **inválido o caducado**, `401`: nunca se degrada a anónimo, o un cliente con la sesión caducada recibiría en silencio la versión sin personalizar.
+- No admite `roles`, `permissions` ni `scopes`: sin token no hay a quién exigírselos. Si los exige, es `required`.
+
+
+Combinaciones válidas de `audience` (capa `api`) × `level`:
+
+| `audience` | Niveles válidos | Notas |
+|---|---|---|
+| `users` (default) | `public`, `optional`, `required`, `admin` | `scopes` prohibido |
+| `services` | `service` (con `scopes`), `public` | `roles` prohibido con `service` |
+| `both` | `required` (opcionalmente `scopes` + `roles`/`permissions`, semántica "cualquiera de"), `public` | `service` sería error: excluiría a los usuarios |

@@ -1,0 +1,136 @@
+# Capa domain — modelado del dominio: value types, entidades, relaciones, ciclo de vida e invariantes.
+# Cero tecnología: nada de tablas, ORMs ni frameworks.
+
+types:
+  CustomerRef:
+    base: string
+    description: >-
+      Referencia opaca del comprador: el sub de su token de usuario. Es también el customerRef con el
+      que se pide el cobro a payment.
+    constraints: { minLength: 1, maxLength: 200 }
+
+  EmailAddress:
+    base: string
+    description: Dirección de correo electrónico del comprador, tal como la trae su token.
+    constraints: { maxLength: 254, pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$" }
+
+  Amount:
+    base: decimal
+    description: >-
+      Importe en unidades mayores de la moneda (12.50). La escala admite hasta 3 decimales, la misma
+      que acepta payment; cuántos admite de verdad lo fija la moneda (ISO 4217).
+    constraints: { min: 0, scale: 3, scalePolicy: reject }
+
+  CurrencyCode:
+    base: string
+    description: Código de moneda ISO 4217 en mayúsculas.
+    constraints: { pattern: "^[A-Z]{3}$" }
+
+  OrderStatus:
+    description: Estado del pedido, que sigue el desenlace de su cobro en payment.
+    values: [pendingPayment, actionRequired, authorized, paid, canceling, canceled, paymentFailed]
+
+  OrderLineRequest:
+    description: Una línea tal como la pide el comprador; el precio no viaja, lo pone el servicio.
+    fields:
+      productId: { type: uuid, required: true }
+      quantity:  { type: int, required: true, constraints: { min: 1, max: 99 } }
+
+  PaymentStatus:
+    description: Estado de un cobro tal como lo informa payment (vocabulario de su contrato).
+    values: [pending, actionRequired, authorized, capturing, canceling, captured, refunding, refunded, canceled, failed]
+
+  NotificationVariable:
+    description: Par nombre-valor que rellena una variable de la plantilla de correo en notifications.
+    fields:
+      name:  { type: string, required: true, constraints: { maxLength: 100 } }
+      value: { type: string, required: true, constraints: { maxLength: 10000 } }
+
+  PaymentFailureReason:
+    description: Motivo de fallo del cobro, con el vocabulario neutro que publica payment.
+    values: [declined, insufficientFunds, expiredCard, authenticationFailed, fraudSuspected, invalidPaymentMethod, notReceived, processingError]
+
+entities:
+  Order:
+    description: >-
+      Un pedido de un comprador: sus líneas con el precio congelado al crearlo y el seguimiento del
+      cobro que se pidió a payment por su importe total.
+    fields:
+      id:            { type: uuid, id: true, generated: true, description: Id del pedido; es también el chargeRequestId del cobro en payment. }
+      customerRef:   { type: CustomerRef, required: true, personal: true, description: Comprador titular del pedido (sub de su token). }
+      customerEmail: { type: EmailAddress, required: true, personal: true, description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token. }
+      status:        { type: OrderStatus, default: pendingPayment }
+      currency:      { type: CurrencyCode, required: true, description: Moneda del pedido; la comparten todos sus productos. }
+      totalAmount:   { type: Amount, computed: { sum: lines.unitPrice, times: quantity }, description: Importe a cobrar; suma de precio unitario por cantidad de cada línea. }
+      lineCount:     { type: int, computed: { count: lines } }
+      paymentId:     { type: uuid, description: Id del cobro en payment; vacío mientras payment no lo ha registrado. }
+      customerAction: { type: json, description: "Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela; solo en actionRequired." }
+      failureReason: { type: PaymentFailureReason, description: Por qué falló el cobro; solo en paymentFailed. }
+      chargeOrderAwaitingSince:         { type: timestamp, description: "Cuándo se pidió el cobro a payment; lo estampa createOrder y lo renueva el barrido cuando payment responde pending. Es el reloj del barrido de pedidos en pendingPayment." }
+      captureOrderPaymentAwaitingSince: { type: timestamp, description: "Cuándo se pidió (o se esperó) la captura por última vez; lo estampa TODA operación que pasa el pedido a authorized (createOrder, cancelOrder, applyPaymentAuthorized, applyPaymentActionRejected) y el reintento del barrido. Es el reloj del barrido de pedidos en authorized." }
+      actionRequiredSince:              { type: timestamp, description: "Cuándo entró el pedido en actionRequired; lo estampan createOrder y applyPaymentActionRequired. Es el reloj del barrido que rescata un 3DS cuyo desenlace no llegó." }
+      cancelOrderPaymentAwaitingSince:  { type: timestamp, description: "Cuándo se pidió la anulación por última vez; lo estampan cancelOrder y el reintento del barrido. Es el reloj del barrido de pedidos en canceling." }
+      createdAt:     { type: timestamp, generated: true }
+      updatedAt:     { type: timestamp, generated: true }
+    relations:
+      lines: { entity: OrderLine, cardinality: one-to-many, required: true, description: Líneas del pedido. }
+    lifecycle:
+      field: status
+      transitions:
+        pendingPayment: [actionRequired, authorized, paymentFailed, canceled]
+        actionRequired: [authorized, paymentFailed, canceling, canceled]
+        authorized:     [paid, canceled]
+        canceling:      [canceled, actionRequired, authorized, paymentFailed]
+        paid:           []
+        canceled:       []
+        paymentFailed:  []
+    checks:
+      - { requires: customerAction, when: { field: status, in: [actionRequired] } }
+      - { forbids: customerAction, unless: { field: status, in: [actionRequired, canceling] } }
+      - { requires: failureReason, when: { field: status, in: [paymentFailed] } }
+      - { forbids: failureReason, unless: { field: status, in: [paymentFailed] } }
+      - { requires: paymentId, when: { field: status, in: [actionRequired, authorized, paid, canceling] } }
+      - { field: totalAmount, op: gt, value: 0 }
+    invariants:
+      - Un mismo producto aparece como mucho en una línea del pedido.
+      - El precio de una línea no cambia después de crear el pedido, aunque cambie el del producto.
+
+  OrderLine:
+    description: Una línea del pedido; congela el producto y su precio en el momento de pedir.
+    fields:
+      id:          { type: uuid, id: true, generated: true }
+      productId:   { type: uuid, required: true, description: Id del producto en catalog (referencia por valor a la réplica). }
+      sku:         { type: string, required: true, constraints: { maxLength: 64 }, description: SKU del producto al crear el pedido. }
+      productName: { type: string, required: true, constraints: { maxLength: 200 }, description: Nombre del producto al crear el pedido. }
+      unitPrice:   { type: Amount, required: true, description: Precio unitario congelado al crear el pedido. }
+      quantity:    { type: int, required: true, constraints: { min: 1, max: 99 } }
+
+  Product:
+    description: >-
+      Copia local (réplica) de los productos vendibles de catalog: solo los campos que order lee para
+      calcular el importe. La mantienen los eventos de catalog; no es fuente de verdad. Mientras
+      catalog no exista, la alimenta un emisor que emula sus eventos.
+    fields:
+      id:            { type: uuid, id: true, unique: true, description: "Id del producto en catalog; lo asigna catalog, no este servicio." }
+      sku:           { type: string, constraints: { maxLength: 64 } }
+      name:          { type: string, constraints: { maxLength: 200 } }
+      price:         { type: Amount }
+      currency:      { type: CurrencyCode }
+      retired:       { type: boolean, default: false, description: "Lápida: catalog retiró el producto. Se conserva la fila con su versión para que un alta antigua que llegue tarde no lo resucite; no se puede pedir." }
+      sourceVersion: { type: long, required: true, description: Versión del producto en catalog; un evento con versión menor o igual a la guardada se descarta. }
+    checks:
+      - { requires: sku, when: { field: retired, equals: false } }
+      - { requires: name, when: { field: retired, equals: false } }
+      - { requires: price, when: { field: retired, equals: false } }
+      - { requires: currency, when: { field: retired, equals: false } }
+      - { field: price, op: gt, value: 0 }
+
+aggregates:
+  Order:
+    description: El pedido y sus líneas se crean juntos y no cambian por separado.
+    root: Order
+    entities: [OrderLine]
+  Product:
+    description: Cada producto replicado es su propia frontera; lo cambia solo su evento.
+    root: Product
+    entities: []

@@ -1,0 +1,616 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keel.dev/schema/2.0/common.schema.json",
+  "title": "Keel Common Definitions",
+  "description": "Definiciones compartidas por todos los artefactos de un servicio Keel.",
+  "$defs": {
+    "baseType": {
+      "type": "string",
+      "enum": ["string", "text", "int", "long", "decimal", "boolean", "uuid", "date", "timestamp", "json", "file"]
+    },
+    "typeName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$"
+    },
+    "operationName": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9]*$"
+    },
+    "kebabName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "roleName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "permissionName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$",
+      "description": "Permiso en formato recurso:accion (ej. product:write)."
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Versión semántica (mayor.menor.parche)."
+    },
+    "errorCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Código de error estable en SCREAMING_SNAKE_CASE."
+    },
+    "httpCallRef": {
+      "type": "object",
+      "required": ["client", "call"],
+      "additionalProperties": false,
+      "description": "Referencia a una llamada declarada en la capa http-clients. Referencia, nunca redeclaración: el método, la ruta y la resiliencia viven allí.",
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/kebabName",
+          "description": "Cliente declarado en http-clients: clients."
+        },
+        "call": {
+          "$ref": "#/$defs/operationName",
+          "description": "Llamada declarada en clients.<client>.calls."
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "minLength": { "type": "integer", "minimum": 0 },
+        "maxLength": { "type": "integer", "minimum": 1 },
+        "pattern": { "type": "string" },
+        "scale": { "type": "integer", "minimum": 0, "description": "Decimales para tipos decimal." },
+        "scalePolicy": {
+          "type": "string",
+          "enum": ["reject", "round"],
+          "description": "Qué pasa con un valor de ENTRADA que trae más decimales que scale: reject lo rechaza con 400 (se valida, no se ajusta); round lo redondea (HALF_UP) a la escala. Solo junto a scale. Sin él, keel validate abre OBL-DECIMAL-SCALE-POLICY en cuanto el decimal llega a un input."
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Mínimo de elementos de la colección. Solo válido en campos con list: true."
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Máximo de elementos de la colección. Solo válido en campos con list: true."
+        }
+      }
+    },
+    "field": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "description": "Tipo base, value type declarado en types, o 'enum' (con values).",
+          "anyOf": [
+            { "$ref": "#/$defs/baseType" },
+            { "$ref": "#/$defs/typeName" },
+            { "const": "enum" }
+          ]
+        },
+        "values": {
+          "type": "array",
+          "description": "Valores permitidos. Solo válido cuando type es enum.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "bucket": {
+          "description": "Bucket lógico (declarado en la capa storage) donde vive el archivo. Obligatorio y exclusivo del tipo file.",
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$"
+        },
+        "description": { "type": "string" },
+        "wireName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Nombre real del campo en el mensaje o respuesta de un sistema externo, cuando no coincide con el nombre del DSL (ej. product_id). Solo válido en contratos de sistemas externos: messaging.subscriptions y http-clients."
+        },
+        "list": {
+          "type": "boolean",
+          "default": false,
+          "description": "El campo es una colección de valores del tipo declarado (escalar o value object). Válido en dominio, payloads y contratos. Las colecciones de entidades se modelan con relations; no es válido dentro de un value object (colección anidada)."
+        },
+        "required": { "type": "boolean", "default": false },
+        "unique": { "type": "boolean", "default": false },
+        "id": { "type": "boolean", "default": false, "description": "Marca el identificador de la entidad." },
+        "generated": {
+          "type": "boolean",
+          "default": false,
+          "description": "La infraestructura asigna el valor (ids, timestamps de auditoría); nunca viene del cliente."
+        },
+        "computed": {
+          "description": "Regla de dominio que deriva el valor a partir de otros campos; nunca viene del cliente. Excluyente con generated. En prosa, o (DSL 2.31) un agregado sobre una relación a-muchos del mismo agregado, que la entidad recalcula en cada mutación de la relación y se guarda: { sum: <relación>.<campo>, times: <campo de la hija> } o { count: <relación> }.",
+          "oneOf": [
+            { "type": "string", "minLength": 5 },
+            {
+              "type": "object",
+              "required": ["sum"],
+              "additionalProperties": false,
+              "properties": {
+                "sum": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*\\.[a-z][A-Za-z0-9]*$",
+                  "description": "La relación a-muchos y el campo numérico de la hija que se suma: lines.productPrice. Con la escala del campo derivado y HALF_UP; el desbordamiento es INVARIANT_VIOLATED."
+                },
+                "times": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$",
+                  "description": "Un solo factor: otro campo numérico de la misma hija, que multiplica a sum antes de sumar (productPrice × count)."
+                },
+                "description": { "type": "string" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["count"],
+              "additionalProperties": false,
+              "properties": {
+                "count": {
+                  "type": "string",
+                  "pattern": "^[a-z][A-Za-z0-9]*$",
+                  "description": "La relación a-muchos cuyos elementos se cuentan."
+                },
+                "description": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "sensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Excluido por defecto de todo output y payload de evento; solo se expone si un payload lo pide explícitamente vía fields."
+        },
+        "personal": {
+          "type": "boolean",
+          "default": false,
+          "description": "Dato personal del titular (DSL 2.28): una clasificación legal, ortogonal a sensitive, que decide qué sale en un output. De ella se derivan que ningún log ni traza del servidor lleve el valor, lo que alcanza una retención con then: anonymize y el inventario de datos personales del proyecto generado."
+        },
+        "default": {},
+        "compare": {
+          "type": "string",
+          "enum": ["exact", "ignore-case", "ignore-case-accents"],
+          "description": "Cómo se comparan dos valores de TEXTO de este campo. En domain gobierna la unicidad y la igualdad (`ACME` y `Acmé` son el mismo nombre con ignore-case-accents); en el input de una query, cómo casa el filtro. Por defecto exact."
+        },
+        "historyFilter": {
+          "type": "string",
+          "enum": ["field", "from", "to"],
+          "description": "Qué filtra este campo del input de una query de historial (output: { history: <Raíz> }, DSL 2.29): field, las entradas que cambiaron ese campo (su dot-path del contrato, string); from y to, las confirmadas desde o hasta ese instante, extremos incluidos (timestamp). Cada uno a lo sumo una vez; los demás campos del input localizan la raíz."
+        },
+        "match": {
+          "type": "string",
+          "enum": ["exact", "contains", "prefix"],
+          "description": "Cómo casa un filtro de TEXTO: el valor entero, una parte o el principio. Solo en el input de una query. Por defecto exact."
+        },
+        "filter": {
+          "type": "object",
+          "required": ["field", "op"],
+          "additionalProperties": false,
+          "description": "Qué filtra este campo del input de una query cuando no se llama como el campo que restringe: la ruta sobre la entidad de la salida y el operador. `minPrice: { type: decimal, filter: { field: price.amount, op: gte } }`. Un input que se llama como un campo de la entidad (o `<relación>Id`) ya es su filtro `eq` sin declararlo. Solo en el input de una query. (2.22)",
+          "properties": {
+            "field": {
+              "type": "string",
+              "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)?$",
+              "description": "Un campo de la entidad de la salida, un subcampo de uno de sus value objects (`price.amount`) o una relación a otra raíz por su nombre (`brand`: compara su id)."
+            },
+            "op": {
+              "type": "string",
+              "enum": ["eq", "ne", "in", "gt", "gte", "lt", "lte"],
+              "description": "eq: igual (con match/compare si es texto). ne (2.32): distinto, y una fila con el campo nulo o ausente también es distinta; sin match ni compare. in (2.32): igual a uno de los valores de una lista (el input es `list: true` del tipo del campo; sobre texto pliega cada uno con su `compare` y solo admite `match: exact`). gt/gte/lt/lte: el valor guardado comparado con el del input, extremos incluidos en gte y lte. Los de orden solo sobre números e instantes."
+            }
+          }
+        },
+        "search": {
+          "type": "object",
+          "required": ["over"],
+          "additionalProperties": false,
+          "description": "Búsqueda libre de un input de TEXTO de una query (2.32): casa si casa con alguno de los campos de `over`, todos con el mismo `match` y el mismo `compare`. `q: { type: string, search: { over: [name, description], match: contains, compare: ignore-case-accents } }`. Sin índice de texto completo ni relevancia: es un OR de comparaciones de texto, determinista en los tres motores.",
+          "properties": {
+            "over": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "Los campos de texto de la entidad de la salida, o subcampos de texto de sus value objects (`address.city`), en los que se busca.",
+              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)?$" }
+            },
+            "match": {
+              "type": "string",
+              "enum": ["exact", "contains", "prefix"],
+              "default": "contains",
+              "description": "Cómo casa con cada campo: el valor entero, una parte o el principio. Por defecto contains."
+            },
+            "compare": {
+              "type": "string",
+              "enum": ["exact", "ignore-case", "ignore-case-accents"],
+              "description": "Cómo se comparan los textos, el mismo para todos los campos de `over`. Por defecto exact."
+            }
+          }
+        },
+        "constraints": { "$ref": "#/$defs/constraints" }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["search"] },
+          "then": { "not": { "anyOf": [{ "required": ["filter"] }, { "required": ["match"] }, { "required": ["compare"] }] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] },
+          "then": { "required": ["values"] }
+        },
+        {
+          "if": { "properties": { "generated": { "const": true } }, "required": ["generated"] },
+          "then": { "not": { "required": ["computed"] } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "file" } }, "required": ["type"] },
+          "then": { "required": ["bucket"] },
+          "else": { "not": { "required": ["bucket"] } }
+        },
+        {
+          "if": { "properties": { "list": { "const": true } }, "required": ["list"] },
+          "then": {
+            "properties": {
+              "id": { "const": false },
+              "unique": { "const": false },
+              "generated": { "const": false },
+              "type": { "not": { "const": "file" } }
+            }
+          },
+          "else": {
+            "properties": {
+              "constraints": {
+                "allOf": [{ "not": { "required": ["minItems"] } }, { "not": { "required": ["maxItems"] } }]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fieldMap": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+      "additionalProperties": { "$ref": "#/$defs/field" }
+    },
+    "payload": {
+      "description": "Entrada o salida de una operación: campos explícitos, referencia a entidad, lista, o void.",
+      "oneOf": [
+        { "const": "void" },
+        {
+          "type": "object",
+          "required": ["entity"],
+          "additionalProperties": false,
+          "properties": {
+            "entity": { "$ref": "#/$defs/typeName" },
+            "list": { "type": "boolean", "default": false },
+            "paginated": { "type": "boolean", "default": false },
+            "exclude": {
+              "type": "array",
+              "description": "Campos que no forman parte de este payload. Un item puede ser un campo/relación de la entidad o un dot-path que entra en una entidad hija (relación) o en un value object compuesto: ej. 'variants.costPrice'.",
+              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)*$" }
+            },
+            "embed": {
+              "type": "array",
+              "description": "Relaciones hacia OTRO agregado que este payload proyecta como objeto anidado en vez de como '<relación>Id'. Solo en output: el consumidor recibe 'category': { … } en lugar de 'categoryId'. El objeto lleva los campos propios del agregado referenciado, sin sus relaciones (la proyección no encadena).",
+              "items": { "$ref": "#/$defs/operationName" }
+            },
+            "sort": {
+              "type": "array",
+              "description": "Orden POR DEFECTO de un payload de salida con 'list' o 'paginated', como '<campo>[:asc|desc]' (default 'asc'). Es contrato: es lo que recibe quien no pide un orden concreto. El id del agregado se añade siempre como último criterio de desempate, aunque no se declare 'sort': sin él, dos páginas consecutivas pueden repetir u omitir filas. Un dot-path ('brand.name') ordena por un campo de otro agregado y exige que esa relación esté en 'embed' del mismo payload; la profundidad se corta en 1, igual que 'embed'.",
+              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)?(:(asc|desc))?$" }
+            },
+            "sortable": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "Los campos por los que el CLIENTE puede ordenar un listado paginado con `?sort=campo,asc|desc` (2.32). Es contrato: cualquier otro campo, o una dirección que no sea asc/desc, es 400. Sin `sortable`, el listado no ofrece `sort` y todo `?sort=` es 400. Campos escalares de la entidad o subcampos de sus value objects (`price.amount`), nunca `sensitive` ni `personal` (ordenar es un oráculo de su valor), ni de otro agregado, ni listas. El id se añade siempre como desempate.",
+              "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)?$" }
+            }
+          },
+          "if": { "required": ["sortable"] },
+          "then": { "required": ["paginated"], "properties": { "paginated": { "const": true } } }
+        },
+        {
+          "type": "object",
+          "required": ["fields"],
+          "additionalProperties": false,
+          "properties": {
+            "fields": { "$ref": "#/$defs/fieldMap" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["history"],
+          "additionalProperties": false,
+          "description": "El historial de cambios de una raíz con persistence.audit.history (DSL 2.29): una página de entradas, una por escritura confirmada, del cambio más reciente al más antiguo. La forma de cada entrada (at, author, change, changes[{field, before, after}]) la fija wire-contract.md § Historial, no el diseño. Solo en el output de una query, y siempre paginada.",
+          "properties": {
+            "history": { "$ref": "#/$defs/typeName" },
+            "paginated": { "type": "boolean", "default": false }
+          }
+        }
+      ]
+    },
+    "audience": {
+      "type": "string",
+      "enum": ["users", "services", "both"],
+      "description": "Público de un endpoint: usuarios humanos (web/mobile), otros servicios (M2M) o ambos."
+    },
+    "authLevel": {
+      "type": "string",
+      "enum": ["public", "optional", "required", "admin", "service"],
+      "description": "public: sin identidad. optional (2.27): sin token se ejecuta como pública con la identidad nula; con un token válido hay identidad; con uno inválido o caducado, 401 —nunca anónimo—. No admite roles, permissions ni scopes. required: un token válido. admin: el rol admin (o los roles que nombre la regla). service: un cliente máquina."
+    },
+    "accessRule": {
+      "type": "object",
+      "required": ["level"],
+      "additionalProperties": false,
+      "properties": {
+        "level": { "$ref": "#/$defs/authLevel" },
+        "roles": {
+          "type": "array",
+          "description": "Roles que pueden invocar la operación (deben existir en el catálogo roles).",
+          "items": { "$ref": "#/$defs/roleName" },
+          "minItems": 1
+        },
+        "permissions": {
+          "type": "array",
+          "description": "Permisos exigidos (deben existir en el catálogo permissions).",
+          "items": { "$ref": "#/$defs/permissionName" },
+          "minItems": 1
+        },
+        "scopes": {
+          "type": "array",
+          "description": "Scopes OAuth2 exigidos a clientes máquina (deben existir en el catálogo permissions). Solo válido con level service o en endpoints audience both.",
+          "items": { "$ref": "#/$defs/permissionName" },
+          "minItems": 1
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "messageRef": {
+      "type": "object",
+      "required": ["location", "name"],
+      "additionalProperties": false,
+      "description": "Dato del mensaje recibido identificado por dónde viaja: en un header/atributo del mensaje o en un campo del cuerpo.",
+      "properties": {
+        "location": {
+          "type": "string",
+          "enum": ["header", "field"],
+          "description": "header: metadato del mensaje (header Kafka, atributo SQS, property AMQP). field: campo del cuerpo."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Nombre real tal cual lo emite la fuente (dot-path si está anidado)."
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Valor que identifica este evento. Solo aplica al discriminator."
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "outboundIdempotency": {
+      "type": "object",
+      "required": ["keyFrom"],
+      "additionalProperties": false,
+      "description": "Clave de idempotencia que ESTE servicio envía al proveedor para que un reintento no duplique el efecto al otro lado. Es la cara saliente de use-cases.<op>.idempotency: sin ella, un retry sobre una escritura ajena cobra, reserva o envía dos veces, y eso ya no lo arregla ninguna guarda propia. Solo tiene sentido si el proveedor la honra: su contrato debe decirlo.",
+      "properties": {
+        "keyFrom": {
+          "type": "string",
+          "enum": ["payload-hash", "correlation"],
+          "description": "De dónde sale la clave. 'payload-hash': firma determinista del contenido de la petición — el reintento manda lo mismo, luego la misma clave. 'correlation': el identificador de correlación de la ejecución en curso, para cuando el proveedor deduplica por intención de negocio y no por contenido (dos peticiones idénticas de dos ejecuciones distintas SÍ deben ejecutarse dos veces)."
+        },
+        "header": {
+          "type": "string",
+          "minLength": 1,
+          "default": "Idempotency-Key",
+          "description": "Cabecera que transporta la clave. Solo si el proveedor usa otra distinta de Idempotency-Key."
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "retryPolicy": {
+      "type": "object",
+      "required": ["maxAttempts"],
+      "additionalProperties": false,
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1 },
+        "backoff": { "type": "string", "enum": ["fixed", "exponential"], "default": "exponential" },
+        "initialDelayMs": { "type": "integer", "minimum": 0 },
+        "maxDelayMs": { "type": "integer", "minimum": 0 },
+        "retryOn": {
+          "type": "array",
+          "description": "Condiciones que disparan reintento.",
+          "items": { "type": "string", "enum": ["timeout", "5xx", "connection"] },
+          "minItems": 1
+        }
+      }
+    },
+    "circuitBreaker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "failureRateThreshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Porcentaje de fallos que abre el circuito."
+        },
+        "slidingWindowSize": { "type": "integer", "minimum": 1 },
+        "waitDurationMs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Tiempo con el circuito abierto antes de probar de nuevo."
+        }
+      }
+    },
+    "cachePolicy": {
+      "type": "object",
+      "required": ["ttlSeconds", "keyFields"],
+      "additionalProperties": false,
+      "properties": {
+        "ttlSeconds": { "type": "integer", "minimum": 1 },
+        "keyFields": {
+          "type": "array",
+          "description": "Campos del input que forman la clave de caché.",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "invalidatedBy": {
+          "type": "array",
+          "description": "Eventos (publicados o consumidos) cuya llegada invalida esta caché.",
+          "items": { "$ref": "#/$defs/typeName" },
+          "minItems": 1
+        }
+      }
+    },
+    "idempotency": {
+      "type": "object",
+      "required": ["keySource"],
+      "additionalProperties": false,
+      "properties": {
+        "keySource": {
+          "type": "string",
+          "enum": ["client-key", "payload-hash", "payload-field"],
+          "description": "De dónde sale la clave de idempotencia. client-key: la envía el cliente en la cabecera Idempotency-Key, así que solo llega por la superficie HTTP. payload-hash: se deriva del contenido de la petición. payload-field: es un campo del propio input (keyField), o sea parte del contrato — llega por igual desde HTTP y desde el canal de eventos, que es la única forma que cubre una operación con dos disparadores."
+        },
+        "keyField": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Con keySource: payload-field, el campo del input que lleva la clave. Se nombra en vez de adivinarse: cuál identifica la petición es del diseño, no una convención del generador."
+        },
+        "storedIn": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$",
+          "description": "Con keySource: payload-field, el campo de la entidad que la operación escribe en el que acaba guardada la clave, cuando no se llama como keyField (una rule lo deriva de él: el eventId que se guarda como dedupeKey). Tiene que participar en su naturalKey: entonces la guarda es la constraint, permanente y común a todas las puertas, y no un almacén de claves. Sin él se compara keyField por nombre. DSL 2.24."
+        },
+        "ttlSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Ventana durante la que una repetición devuelve el resultado original. Sin él la guarda es permanente."
+        },
+        "partitionBy": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+          "description": "Ámbito de la clave: campos del input que, junto al nombre de la operación, la acotan. Sin él la clave es GLOBAL por operación, y dos llamantes que elijan la misma se ven. Con la identidad del llamante (callerIdentity.field) cada sistema tiene su propio espacio de claves. Solo con client-key y payload-hash: con payload-field la guarda es la clave natural o el almacén por ese campo. DSL 2.17."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "keySource": { "const": "payload-field" } }, "required": ["keySource"] },
+          "then": { "required": ["keyField"], "not": { "required": ["partitionBy"] } }
+        },
+        {
+          "if": {
+            "properties": { "keySource": { "enum": ["client-key", "payload-hash"] } },
+            "required": ["keySource"]
+          },
+          "then": {
+            "not": { "anyOf": [{ "required": ["keyField"] }, { "required": ["storedIn"] }] },
+            "$comment": "keyField y storedIn solo significan algo cuando la clave ES un campo del input: con la cabecera o con el hash del payload no hay campo que nombrar, y dejarlo pasar declararía una intención que nada implementa."
+          }
+        }
+      ]
+    },
+    "scheduleTrigger": {
+      "type": "object",
+      "required": ["cron"],
+      "additionalProperties": false,
+      "properties": {
+        "cron": { "type": "string", "pattern": "^\\S+( +\\S+){4}$", "description": "Expresión cron de EXACTAMENTE 5 campos (minuto hora día-mes mes día-semana), agnóstica del scheduler. El campo de segundos lo añade cada generador si su scheduler lo exige; declararlo aquí produce una expresión con un campo de más que el servicio generado rechaza AL ARRANCAR, lejísimos de donde está la causa." },
+        "description": { "type": "string" }
+      }
+    },
+    "errorDef": {
+      "type": "object",
+      "required": ["code", "when"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "$ref": "#/$defs/errorCode" },
+        "when": { "type": "string", "minLength": 5 },
+        "http": { "type": "integer", "minimum": 400, "maximum": 599 }
+      }
+    },
+    "httpRequestShape": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "description": "Forma tipada de la petición saliente. Los tipos son los mismos del resto del DSL (base types, value types del domain, enum inline).",
+      "properties": {
+        "pathParams": { "$ref": "#/$defs/fieldMap" },
+        "queryParams": { "$ref": "#/$defs/fieldMap" },
+        "headers": { "$ref": "#/$defs/fieldMap" },
+        "body": { "$ref": "#/$defs/fieldMap" }
+      }
+    },
+    "httpCall": {
+      "type": "object",
+      "required": ["contract"],
+      "additionalProperties": false,
+      "properties": {
+        "contract": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Contrato esperado de la llamada en prosa (método, ruta y forma de la respuesta). Con method/path/request/response presentes, la prosa queda como resumen para humanos."
+        },
+        "description": { "type": "string" },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+          "description": "Método HTTP de la llamada. Requiere path."
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^/",
+          "description": "Ruta relativa a la base del cliente, con variables entre llaves (ej. /prices/{sku}). Requiere method."
+        },
+        "request": { "$ref": "#/$defs/httpRequestShape" },
+        "response": {
+          "type": "object",
+          "required": ["fields"],
+          "additionalProperties": false,
+          "description": "Forma tipada de la respuesta esperada del sistema externo.",
+          "properties": {
+            "fields": { "$ref": "#/$defs/fieldMap" }
+          }
+        },
+        "timeoutMs": { "type": "integer", "minimum": 1 },
+        "idempotency": { "$ref": "#/$defs/outboundIdempotency" },
+        "retry": { "$ref": "#/$defs/retryPolicy" },
+        "circuitBreaker": { "$ref": "#/$defs/circuitBreaker" },
+        "fallback": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Qué hace el servicio cuando la llamada falla definitivamente."
+        }
+      },
+      "dependentRequired": {
+        "method": ["path"],
+        "path": ["method"],
+        "request": ["method"]
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "method": { "enum": ["GET", "DELETE"] } },
+            "required": ["method", "request"]
+          },
+          "then": {
+            "properties": { "request": { "not": { "required": ["body"] } } }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,105 @@
+# Capa `api` — integración con el cliente (opcional)
+
+Archivo: `specs/<servicio>/api.keel.yaml` · Schema: [`schema/api.schema.json`](../../schema/api.schema.json)
+
+Cómo se exponen las operaciones al cliente vía REST. Existe solo si el servicio tiene API; un worker puro que solo consume eventos no la declara.
+
+```yaml
+style: rest
+basePath: /api/v1
+auto: true                       # rutas CRUD por convención desde los nombres de operación
+defaultAudience: users           # público por defecto: users | services | both
+endpoints:                       # mapeo explícito; prioridad sobre auto
+  retireProduct:   { method: POST, path: "/products/{productId}/retire", successStatus: 200 }
+  getProductPrice: { method: GET, path: "/products/{productId}/price", audience: services }
+pagination: { style: offset, defaultSize: 20, maxSize: 100 }
+```
+
+- `basePath` es el prefijo de todas las rutas. Si **no** incluye la versión (`/api`), el generador añade `/v1`; si ya la incluye (`/api/v1`, `/api/v2`), se respeta tal cual. Las dos formas son válidas: elige una y no mezcles.
+- `auto: true` deriva rutas CRUD: `createX → POST /xs`, `getX → GET /xs/{id}`, `listXs → GET /xs`, `updateX → PUT /xs/{id}`, `deleteX → DELETE /xs/{id}`. Los `endpoints` explícitos cubren operaciones no-CRUD.
+- Cada clave de `endpoints` debe ser una operación de `use-cases` (referencia por nombre, validada por `keel validate`).
+- **Preferencia por defecto para un borrado: `successStatus: 204` con `output: "void"` en `use-cases`.** El 204 dice exactamente lo que pasó y no obliga al cliente a leer ni a ignorar un cuerpo; es también lo que asume el generador en un `DELETE` sin `successStatus` (y lo que produce `auto: true` para `deleteX`), así que declarar `output` sin declarar el status deja el contrato a merced de ese default. Devolver cuerpo es legítimo cuando la operación **cambia más de lo que borra** —recompactar posiciones, reasignar el elemento principal, recalcular un total— y esa representación le ahorra al cliente un GET que no podría predecir; entonces el status tiene que admitir cuerpo (`200`). Lo que no existe es el punto medio: `204` con `output` no-void es una respuesta que ningún cliente HTTP puede consumir, y `keel validate` lo da en rojo.
+- **Un `201` lleva `Location` solo si hay a dónde apuntar.** La cabecera se construye con la ruta de la operación que **lee** esa entidad por id: un `GET` sin lista cuya ruta tiene un solo parámetro, `{id}` o `{<entidad>Id}` (con `auto: true`, el `get<X>` derivado cuenta). No es «la ruta de la petición + id»: un `PUT /templates/{key}/{locale}` se lee en `GET /templates/{templateId}`, y la cabecera apunta a esta última. Si el alta **añade** a la colección de un agregado y devuelve el agregado (`POST /products/{productId}/images`), la `Location` es la lectura del agregado expandida con `productId`. Si ninguna operación lee el recurso, el `201` sale **sin** `Location`: una cabecera hacia una ruta que nadie sirve es un 404 prometido. La cabecera es una URL **absoluta** (esquema y host de la petición): un `Then` que escribe `Location = /api/v1/products/{p1}` afirma su final, no la igualdad. `keel validate` lo pregunta (`CHK-API-CREATED-NO-READ`): se cierra añadiendo la lectura o aceptando en `decisions.yaml` que el alta no tiene dirección.
+- `audience` declara el público del endpoint: `users` (clientes web/mobile con usuario humano, el default), `services` (otros servidores, M2M) o `both`.
+- **Preferencia por defecto: cada consumo servidor-a-servidor tiene operación propia en `use-cases` y endpoint propio con `audience: services`.** No es duplicación gratuita: `endpoints` se indexa **por nombre de operación**, así que compartir endpoint es compartir output, errores, paginación y scopes. Y los dos contratos crecen en direcciones opuestas —el de máquina hacia lotes, campos estables y respuestas sin adorno de pantalla; el de usuarios hacia lo contrario—, de modo que sin operación propia no pueden divergir sin romperse mutuamente, y el que se rompe es el que tiene otro equipo acoplado detrás. Nombra la operación M2M por su intención (`listProductsBatch`, `getProductPriceForServices`), no duplicando la de usuarios con un sufijo casual.
+- `audience: both` (un endpoint para ambos públicos) es legítimo, pero es **la excepción**: cualquier cambio para usuarios pasa a ser un cambio para el consumidor servidor. Lo elige el diseñador a sabiendas y su porqué queda en `DESIGN.md`; el análisis de huecos lo lista siempre como riesgo. Ejes de decisión: `references/structural-decisions.md` de la skill `keel-design` §3.4 (y §3.8 para la paginación).
+- `defaultAudience` fija la audiencia de los endpoints sin `audience` propia, incluidos los derivados por `auto`. Una operación CRUD cubierta por `auto` que necesite otra audiencia debe declararse como endpoint explícito.
+- La coherencia audiencia ↔ regla de acceso (nivel `service`, scopes) la valida `keel validate` contra la capa `security`.
+- `pagination` aplica a los outputs con `paginated: true`.
+- **Forma del sobre de paginación (contrato canónico)**: una respuesta `paginated: true` es siempre
+
+  ```json
+  { "items": [ … ], "page": 0, "size": 20, "totalElements": 42, "totalPages": 3 }
+  ```
+
+  La página se pide con los query params `page` (base 0) y `size`. `defaultSize` es el `size` cuando
+  el cliente no lo manda y `maxSize` el tope: un `size` mayor se recorta a `maxSize`, no da error.
+  Por abajo tampoco: un `size` menor que 1 se sustituye por `defaultSize` y un `page` negativo por 0
+  (lo que no es un entero, igual que el negativo). Es la lectura de Spring Data y la de los dos
+  generadores; un diseño que quiera un `400` lo escribe en un escenario.
+  Los nombres no se declaran en el DSL porque son los mismos para todo servicio y todo generador —
+  **los escenarios de validación deben escribirse contra estos**.
+
+  Y la **página vacía** también es contrato, porque `validation-scenarios.md` exige un escenario
+  para ella: `items: []`, `totalElements: 0` y **`totalPages: 0`** (no 1: cero elementos son cero
+  páginas), con `page` y `size` los que se pidieron. Vale igual para una página fuera de rango.
+  Mientras el valor no estuvo escrito aquí, el escenario se exigía y nadie sabía qué asertar: la
+  corrida `catalog` lo reportó como hueco del diseño cuando era un hueco de este documento.
+
+  Ese sobre es el de `style: offset`, el único estilo. `style: cursor` salió del schema en 2.32: validaba y
+  ningún generador lo servía, y quien lo declaraba recibía paginación por offset. Vuelve con su contrato
+  cuando un diseño lo pida.
+
+  El ORDEN que el cliente puede pedir con `?sort=` no es de esta capa sino de cada listado: `output.sortable`
+  en `use-cases` (2.32). Sin él, `?sort=` es 400.
+- Paths con `{param}` van entre comillas en YAML.
+
+## `concurrency` — la escritura condicional (DSL 2.25)
+
+```yaml
+concurrency:
+  conditionalWrites: required        # none | optional | required
+  operations: [updateProduct, retireProduct]
+```
+
+`persistence.consistency.optimisticLocking` arbitra dos escrituras que se cruzan **dentro** del servidor. La
+actualización perdida de un formulario ocurre **entre dos peticiones**: Ana carga la ficha a las 10:00, Luis cambia el
+precio a las 10:02 y a las 10:05 Ana guarda con lo que cargó. Su PUT carga la versión de Luis y confirma, y el precio
+de Luis desaparece sin que falle nada. `concurrency` lo cierra con el estándar HTTP:
+
+- **Las escrituras listadas** aceptan `If-Match`. Si no coincide con la versión vigente, responden `412`
+  (`PRECONDITION_FAILED`) y no escriben nada. Si la cabecera falta y la política es `required`, responden `428`
+  (`PRECONDITION_REQUIRED`) sin cargar nada. Con `optional`, una escritura sin cabecera se comporta como sin
+  `concurrency`. Los dos códigos son de la lista cerrada de `docs/framework-errors.md`, con su override por
+  `errors`.
+- **Las lecturas que dan el `ETag` no se declaran: se derivan.** Son las queries con endpoint cuya salida es la
+  representación única (ni `list` ni `paginated`) de una raíz que escribe alguna operación listada.
+- **Una escritura listada cuya salida es esa misma raíz** devuelve el `ETag` nuevo, para encadenar dos ediciones sin
+  releer.
+- El `ETag` es la versión de la raíz entre comillas (`"7"`), fuerte y opaco; `If-Match` se compara en fuerte, y
+  `*`, las listas, los débiles y lo ilegible tienen su caso en `docs/wire-contract.md § Escritura condicional`.
+- Orden de los fallos: `401` → `403` → `428` → `400` → `404` → `412` → `409`. Quien no ve el recurso
+  (`scoping`, `ownership`) recibe su `404` o su `403` antes que el `412`. El `409` de `optimisticLocking`
+  sigue existiendo: es la carrera dentro del servidor, con la versión correcta.
+
+Lo que `keel validate` exige de cada operación listada, en este orden: que sea un command con endpoint
+(`CHK-API-CONCURRENCY-OP-UNKNOWN`); que escriba sobre una raíz con versión —`optimisticLocking: all`, o
+`declared` con `lockVersion` en la raíz— (`CHK-API-CONCURRENCY-UNVERSIONED`); que reciba el id de esa raíz en la
+ruta, `{id}` o `{<raíz>Id}`, porque un alta no tiene versión previa (`CHK-API-CONCURRENCY-CREATE`); y que alguna
+lectura derivada dé su `ETag` (`CHK-API-CONCURRENCY-NO-READER`). Y que un escenario la ejercite con un `If-Match`
+viejo (`CHK-SCEN-PRECONDITION-UNCOVERED`, aviso).
+
+**Sin `concurrency`**, un `PUT` o un `PATCH` que edita una raíz con versión abre
+`OBL-API-CONCURRENCY-UNDECIDED`: no está decidido si quien guarda un formulario viejo pisa el cambio de otro. Se
+cierra listando la operación, con `conditionalWrites: none` para todo el servicio, o aceptándola por operación en
+`decisions.yaml` (scope `api.concurrency.<op>`), p. ej. «el cliente es una máquina que no edita formularios».
+
+Lo que **no** entra: `If-None-Match` y el `304` (optimización de lectura, no corrección), `If-Unmodified-Since` y
+`If-None-Match: *` en un alta. La puerta por eventos no tiene lectura previa del cliente: si una operación por evento
+necesita una versión esperada, es un campo de su input. Y un proxy que comprima la respuesta puede convertir el ETag en
+débil (`W/`), que no coincide nunca: no se despliega detrás de uno así sin desactivarlo para estas rutas.
+
+## Qué NO va aquí
+
+- Qué endpoints son públicos o protegidos, roles y permisos → capa `security` (por operación, no por ruta).
+- Validaciones y errores de la operación → capa `use-cases`.
