@@ -5,8 +5,14 @@ el pedido y calcula el importe, **payment** lo cobra con tarjeta a través de St
 avisa al comprador por correo. Los servicios se comunican por HTTP y por eventos (RabbitMQ), se autentican
 con Keycloak y cada uno guarda sus datos en su propia base PostgreSQL.
 
-El repositorio contiene el **diseño** de cada servicio (artefactos declarativos agnósticos de tecnología, con
-[Keel](docs/methodology.md)) y el **código** que se generó a partir de él con Spring Boot.
+El repositorio contiene el **diseño** de cada servicio (artefactos declarativos agnósticos de tecnología) y el
+**código** que se generó a partir de él con Spring Boot.
+
+> **Herramienta utilizada: [Keel](https://github.com/keel-system/keel), de mi autoría.** Los tres servicios se
+> diseñaron y generaron con Keel. Cada servicio se describe primero como un diseño agnóstico de tecnología, capa
+> por capa (`specs/<servicio>/`); después, un generador (aquí `keel-spring`) produce el proyecto Spring Boot en
+> `services/<servicio>-spring/`, que se completa y se valida contra los escenarios del propio diseño. La
+> metodología está en [`docs/methodology.md`](docs/methodology.md).
 
 ## Dónde está cada microservicio
 
@@ -81,6 +87,86 @@ Dos ajustes son **parches de despliegue**, no del diseño:
 El arreglo de verdad es declarar a order como emisor en el diseño de notifications (`/keel-evolve
 specs/notifications`). Los avisos (webhooks) de Stripe no llegan a localhost: payment conoce el desenlace por
 la respuesta síncrona y por su barrido.
+
+### Mirar por dentro: bases de datos y eventos
+
+Además de las respuestas de order y los correos de Mailpit, puedes ver qué guarda cada servicio y qué eventos
+viajan entre ellos.
+
+#### Las tablas de cada servicio, con un cliente de base de datos
+
+Usa el cliente que prefieras (DBeaver, pgAdmin, DataGrip, la extensión de PostgreSQL de VS Code o `psql`) y
+crea **una conexión por servicio**. Los tres comparten servidor, pero cada uno tiene su propia base y su propio
+usuario, y ninguno ve las tablas de los otros:
+
+| Servicio | Host | Puerto | Base | Usuario | Contraseña |
+|---|---|---|---|---|---|
+| order | `localhost` | `5432` | `order` | `order` | `changeme` |
+| payment | `localhost` | `5432` | `payment` | `payment` | `changeme` |
+| notifications | `localhost` | `5432` | `notifications` | `notifications` | `changeme` |
+
+Si ya tienes un PostgreSQL propio en el 5432, el contenedor no podrá arrancar: cambia `DB_PORT` en `.env` y
+usa ese puerto en la conexión.
+
+Qué mirar en cada una después de hacer un pedido:
+
+- **order: `orders` y `order_lines`.** El pedido con su `status`, el `total_amount` que calculó order y el
+  `payment_id` del cobro. En `order_lines`, el `sku`, el `product_name` y el `unit_price` congelados.
+  `products` es la réplica del catálogo, con los tres productos sembrados.
+- **payment: `payments`.** El cobro, con su `charge_request_id` (`order:<id del pedido>`), el `status`
+  (`AUTHORIZED`, `CAPTURED`, `FAILED`…) y el `gateway_payment_id` que devolvió Stripe.
+- **notifications: `email_messages`.** Cada correo, con su `template_code`, su `status` (`QUEUED` → `SENT`) y la
+  `idempotency_key` que impide enviarlo dos veces.
+- **En los tres: `outbox_event`.** Los eventos que el servicio escribió en la misma transacción que el cambio de
+  estado; `published_at` dice cuándo los publicó en RabbitMQ.
+
+Por ejemplo, para seguir un pedido de order a payment:
+
+```sql
+-- En la base order
+select id, status, total_amount, failure_reason, payment_id from orders order by created_at desc;
+
+-- En la base payment: el cobro de ese pedido
+select charge_request_id, status, amount, currency, gateway_payment_id from payments order by created_at desc;
+```
+
+En la base, los estados se guardan en mayúsculas (`PAID`); la API los devuelve en minúsculas (`paid`).
+
+#### Los eventos, en la consola de RabbitMQ
+
+Abre http://localhost:15672 y entra con **`guest` / `guest`**.
+
+- **Pestaña *Exchanges*: por dónde publica cada servicio.** `order.events`, `payment.events`,
+  `notifications.events` y `catalog.events` (el catálogo emulado). Al abrir uno, la gráfica *Message rates*
+  muestra los eventos que pasan y la lista de *Bindings* dice a qué colas llegan.
+- **Pestaña *Queues*: quién los consume.** `order.payment` (order escuchando a payment), `order.catalog` (order
+  escuchando al catálogo) y `notifications.any-registered-system` (notifications escuchando a order). Suelen
+  estar a 0 porque se consumen al momento. Sus `-dlq` deben estar **siempre a 0**: un mensaje ahí es un evento
+  rechazado que no se aplicó.
+
+**Para leer el contenido de los eventos**, usa las colas `paymentEvents`, `notificationRequests` y
+`notificationEvents`. Nadie las consume, así que guardan una copia de cada evento:
+
+1. En *Queues*, abre `paymentEvents` (o la que te interese).
+2. Despliega **Get messages**, elige *Ack mode*: **Nack message requeue true** (así el mensaje no se borra) y
+   pulsa **Get Message(s)**.
+3. Verás el *routing key* (por ejemplo `payment.payment-authorized`) y el sobre del evento: `metadata` (`eventId`,
+   `eventType`, `source`, `correlationId`, `traceparent`) y `data`, con el contenido.
+
+   Así se ve un `EmailSent` leído desde `notificationEvents`: el exchange por el que salió
+   (`notifications.events`), su *routing key*, el tipo de evento, la cabecera `traceparent` que permite seguirlo en
+   la traza y, en *Payload*, el sobre con la `metadata` y los datos.
+
+   ![Consola de RabbitMQ: Get messages sobre la cola notificationEvents con Ack Mode «Nack message requeue true»; el mensaje vino del exchange notifications.events con routing key notifications.email-sent, tipo EmailSent, cabecera traceparent y un payload JSON con metadata (eventId, eventType EmailSent, occurredAt, source notifications)](docs/images/rabbitmq-evento-email-sent.png)
+
+| Cola | Qué eventos copia |
+|---|---|
+| `paymentEvents` | Los de payment: `PaymentAuthorized`, `PaymentCaptured`, `PaymentFailed`, `PaymentCanceled`… |
+| `notificationRequests` | Los encargos de correo de order (`NotificationRequested`) |
+| `notificationEvents` | Los desenlaces de notifications: `EmailSent` y `EmailDeliveryFailed` |
+
+Estas tres colas crecen sin parar mientras el sistema está arriba. Para vaciarlas, en cada una usa **Purge
+messages**, o apaga con `bash down.sh -v`.
 
 > Edita libremente esta introducción para describir tu organización, convenciones o cómo contribuir.
 > La tabla de la sección **Servicios diseñados** la genera `keel index` (lo ejecutan `/keel-design` al

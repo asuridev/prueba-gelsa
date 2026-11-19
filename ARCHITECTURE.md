@@ -6,6 +6,14 @@
 > [payment-spring](https://github.com/asuridev/prueba-gelsa/tree/main/services/payment-spring) y
 > [notifications-spring](https://github.com/asuridev/prueba-gelsa/tree/main/services/notifications-spring).
 >
+> **Herramienta utilizada: [Keel](https://github.com/keel-system/keel), de mi autoría.** Los tres servicios se
+> diseñaron y generaron con Keel. Cada servicio se describe primero como un diseño agnóstico de tecnología, capa
+> por capa (`specs/<servicio>/`): dominio, casos de uso, API, seguridad, mensajería, persistencia… sin nombrar
+> ningún framework, base de datos ni broker. Después, un generador (aquí `keel-spring`) produce a partir de ese
+> diseño el proyecto Spring Boot de `services/<servicio>-spring/`, que se completa y se valida contra los
+> escenarios del propio diseño. Por eso las tecnologías de la sección 3 se eligieron al generar, y cambiarlas no
+> obliga a rediseñar. La metodología está en [`docs/methodology.md`](docs/methodology.md).
+>
 > **Cómo probarlo.** El [README del repositorio](https://github.com/asuridev/prueba-gelsa#probar-el-flujo-completo)
 > explica cómo levantar el sistema completo con el `docker-compose.yaml` de la raíz y cómo hacer las pruebas
 > manuales: la colección de Postman, qué validar en cada paso y dónde ver los correos.
