@@ -134,18 +134,18 @@
         "errors": 0
       },
       "derivatives": {
-        "fresh": 2,
+        "fresh": 8,
         "stale": 0,
         "unstamped": 0,
-        "missing": 7,
+        "missing": 1,
         "orphan": 0,
         "notApplicable": 0
       },
       "docs": {
         "design": "docs/order/DESIGN.md",
-        "overview": null,
-        "openapiViewer": null,
-        "asyncapiViewer": null,
+        "overview": "docs/order/overview.html",
+        "openapiViewer": "docs/order/openapi.html",
+        "asyncapiViewer": "docs/order/asyncapi.html",
         "integration": null
       },
       "files": [
@@ -163,7 +163,14 @@
         "specs/order/flow-review.yaml",
         "specs/order/gaps.yaml",
         "specs/order/validation-scenarios.md",
-        "docs/order/DESIGN.md"
+        "docs/order/DESIGN.md",
+        "docs/order/openapi.yaml",
+        "docs/order/openapi.html",
+        "docs/order/asyncapi.yaml",
+        "docs/order/asyncapi.html",
+        "docs/order/postman/order-collection.json",
+        "docs/order/overview.html",
+        "docs/order/postman/auth-collection.json"
       ]
     },
     {

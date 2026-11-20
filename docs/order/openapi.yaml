@@ -1,0 +1,933 @@
+openapi: 3.1.0
+info:
+  title: order
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+  description: 'Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide
+    el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications.
+
+
+    Contrato HTTP derivado del diseño Keel. Superficie del **comprador**: el navegador de la tienda llama con el
+    token OIDC del usuario; cualquier usuario autenticado es comprador (no hay roles) y solo ve y anula sus propios
+    pedidos.
+
+
+    **Importes**: número en unidades mayores de la moneda (12.50), comparados por valor; un importe con más de 3
+    decimales se rechaza, nunca se redondea. `totalAmount` es la suma de precio unitario por cantidad de las líneas,
+    con el precio congelado al crear el pedido.
+
+
+    **Nulos**: un campo sin valor viaja como `null`; una colección vacía, como `[]`. Los instantes son ISO-8601
+    en UTC.
+
+
+    **Cobro**: el pedido sigue el desenlace del cobro que payment registra; su estado cambia por eventos de payment
+    (ver `asyncapi.yaml`) y por un barrido de reconciliación, no por llamadas del comprador salvo `cancelOrder`.'
+servers:
+- url: '{baseUrl}'
+  description: El host y el puerto son parámetro de despliegue, nunca dato de diseño.
+  variables:
+    baseUrl:
+      default: http://localhost:8080
+      description: Raíz del servicio desplegado.
+tags:
+- name: Pedidos
+  description: Crear, consultar, listar y anular los pedidos del comprador.
+paths:
+  /api/v1/orders:
+    post:
+      operationId: createOrder
+      summary: Crea un pedido con las líneas pedidas, calcula su importe con la copia local del catálogo y pide
+        su cobro a payment, respondiendo con el pedido en el estado que alcanzó.
+      tags:
+      - Pedidos
+      description: '- Precondición: La petición trae exactamente una fuente de pago, paymentToken o paymentMethodId.
+
+        - Precondición: Ningún productId se repite entre las líneas.
+
+        - Precondición: Todos los productos pedidos existen en la copia local del catálogo y no están retirados.
+
+        - Precondición: Todos los productos pedidos tienen la misma moneda.
+
+        - El customerEmail del pedido NO llega en la petición - se toma del claim email del token del comprador;
+        un token sin ese claim, o con un valor que no es una dirección válida, responde CUSTOMER_EMAIL_REQUIRED.
+
+        - Repetir la petición con la misma Idempotency-Key devuelve el pedido creado en su estado ACTUAL, no la
+        respuesta original.
+
+        - Cada línea congela sku, name y price del producto tal como están en la copia local en ese instante.
+
+        - La moneda del pedido es la de sus productos.
+
+        - El pedido se confirma en pendingPayment, con chargeOrderAwaitingSince al instante actual, ANTES de llamar
+        a payment; la llamada nunca ocurre dentro de la transacción.
+
+        - El cobro se pide con chargeRequestId "order:<id del pedido>", customerRef, totalAmount, currency y la
+        fuente de pago recibida; el paymentToken no se guarda.
+
+        - Con la respuesta de payment se RELEE el pedido; si ya no está en pendingPayment (un evento de payment
+        llegó antes), no se toca y se responde con su estado actual. Si sigue en pendingPayment se guarda paymentId
+        y se aplica el estado del cobro - authorized, capturing o captured lo pasan a authorized con captureOrderPaymentAwaitingSince
+        al instante actual (el evento de payment termina el trabajo, y si se pierde el barrido pide la captura);
+        actionRequired a actionRequired con customerAction y actionRequiredSince; failed a paymentFailed con su
+        failureReason, o processingError si payment no lo informa; canceled a canceled con el correo de cancelación;
+        pending lo deja en pendingPayment.
+
+        - Si payment rechaza la petición con PAYMENT_METHOD_UNAVAILABLE, el pedido pasa a paymentFailed con failureReason
+        invalidPaymentMethod; con cualquier otro 4xx de negocio o de validación, a paymentFailed con failureReason
+        processingError. Un rechazo del cobro no es un error HTTP de esta operación - responde 201 con el pedido.
+
+        - Si payment no contesta (timeout, error de conexión, 5xx o circuito abierto), si no se pudo obtener el
+        token M2M, o si payment responde 401 o 403, el pedido queda en pendingPayment y la operación responde 201
+        igualmente; el desenlace llegará por evento o lo resolverá reconcileStalledOrders.
+
+        - Si el pedido acaba en paymentFailed, se pide el correo de pago fallido (NotificationRequested con templateCode
+        order-payment-failed e idempotencyKey "order:<id>:payment-failed").
+
+        - La captura NO la pide esta operación; la pide applyPaymentAuthorized al recibir PaymentAuthorized, que
+        payment publica también para un desenlace síncrono.
+
+        - Cabecera `Idempotency-Key` obligatoria, recordada 24 h y acotada por comprador: repetir la misma petición
+        devuelve el pedido en su estado actual (201) sin pedir otro cobro; la misma clave con otro contenido es
+        `IDEMPOTENCY_KEY_REUSED`.'
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Clave de idempotencia del comprador; la misma clave con el mismo contenido devuelve el mismo
+          pedido.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: 'Pedido creado (también al repetir la misma petición): el cuerpo trae el estado que alcanzó
+            — authorized, actionRequired, paymentFailed, canceled o pendingPayment. Un rechazo del cobro no es un
+            error HTTP.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+          headers:
+            Location:
+              description: Ruta de lectura del pedido (`getOrder`).
+              schema:
+                type: string
+        '400':
+          description: '`VALIDATION_ERROR` — La petición no cumple las cotas declaradas del input.
+
+
+            `IDEMPOTENCY_KEY_REQUIRED` — Falta la cabecera Idempotency-Key.
+
+
+            `PAYMENT_SOURCE_INVALID` — No se indica ninguna fuente de pago o se indican las dos.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                VALIDATION_ERROR:
+                  summary: La petición no cumple las cotas declaradas del input.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: VALIDATION_ERROR
+                    message: La petición no cumple las cotas declaradas del input.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                IDEMPOTENCY_KEY_REQUIRED:
+                  summary: Falta la cabecera Idempotency-Key.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: IDEMPOTENCY_KEY_REQUIRED
+                    message: Falta la cabecera Idempotency-Key.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                PAYMENT_SOURCE_INVALID:
+                  summary: No se indica ninguna fuente de pago o se indican las dos.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: PAYMENT_SOURCE_INVALID
+                    message: No se indica ninguna fuente de pago o se indican las dos.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '401':
+          description: '`UNAUTHENTICATED` — Sin credencial válida.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                UNAUTHENTICATED:
+                  summary: Sin credencial válida.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 401
+                    error: Unauthorized
+                    code: UNAUTHENTICATED
+                    message: Sin credencial válida.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '409':
+          description: '`CONCURRENT_MODIFICATION` — El recurso cambió mientras se procesaba la petición (bloqueo
+            optimista).
+
+
+            `IDEMPOTENCY_KEY_IN_PROGRESS` — Otra petición del mismo comprador con la misma clave se está procesando
+            a la vez.
+
+
+            `IDEMPOTENCY_KEY_REUSED` — El comprador ya usó esa clave con un contenido distinto.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                CONCURRENT_MODIFICATION:
+                  summary: El recurso cambió mientras se procesaba la petición (bloqueo optimista).
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 409
+                    error: Conflict
+                    code: CONCURRENT_MODIFICATION
+                    message: El recurso cambió mientras se procesaba la petición (bloqueo optimista).
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                IDEMPOTENCY_KEY_IN_PROGRESS:
+                  summary: Otra petición del mismo comprador con la misma clave se está procesando a la vez.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 409
+                    error: Conflict
+                    code: IDEMPOTENCY_KEY_IN_PROGRESS
+                    message: Otra petición del mismo comprador con la misma clave se está procesando a la vez.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                IDEMPOTENCY_KEY_REUSED:
+                  summary: El comprador ya usó esa clave con un contenido distinto.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 409
+                    error: Conflict
+                    code: IDEMPOTENCY_KEY_REUSED
+                    message: El comprador ya usó esa clave con un contenido distinto.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '422':
+          description: '`INVARIANT_VIOLATED` — La escritura dejaría el pedido fuera de una invariante del dominio;
+            no se escribe nada.
+
+
+            `CUSTOMER_EMAIL_REQUIRED` — El token del comprador no trae el claim email o su valor no es una dirección
+            válida.
+
+
+            `DUPLICATE_ORDER_LINE` — Dos líneas piden el mismo productId.
+
+
+            `PRODUCT_NOT_AVAILABLE` — Algún productId no está en la copia local del catálogo o está retirado.
+
+
+            `CURRENCY_MISMATCH` — Los productos pedidos no comparten moneda.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                INVARIANT_VIOLATED:
+                  summary: La escritura dejaría el pedido fuera de una invariante del dominio; no se escribe nada.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: INVARIANT_VIOLATED
+                    message: La escritura dejaría el pedido fuera de una invariante del dominio; no se escribe nada.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                CUSTOMER_EMAIL_REQUIRED:
+                  summary: El token del comprador no trae el claim email o su valor no es una dirección válida.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: CUSTOMER_EMAIL_REQUIRED
+                    message: El token del comprador no trae el claim email o su valor no es una dirección válida.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                DUPLICATE_ORDER_LINE:
+                  summary: Dos líneas piden el mismo productId.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: DUPLICATE_ORDER_LINE
+                    message: Dos líneas piden el mismo productId.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                PRODUCT_NOT_AVAILABLE:
+                  summary: Algún productId no está en la copia local del catálogo o está retirado.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: PRODUCT_NOT_AVAILABLE
+                    message: Algún productId no está en la copia local del catálogo o está retirado.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                CURRENCY_MISMATCH:
+                  summary: Los productos pedidos no comparten moneda.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: CURRENCY_MISMATCH
+                    message: Los productos pedidos no comparten moneda.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+      security:
+      - bearerAuth: []
+    get:
+      operationId: listMyOrders
+      summary: Lista los pedidos del comprador que lo pide, del más reciente al más antiguo.
+      tags:
+      - Pedidos
+      description: '- Solo trae los pedidos del comprador del token; el total y las páginas cuentan solo esas filas.
+
+        - Un comprador sin pedidos recibe una página vacía, no un error.
+
+        - Orden por defecto: `createdAt` descendente, con el id como desempate.'
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/OrderStatus'
+        description: Filtro opcional por estado.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+        description: Página, base 0.
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          default: 20
+        description: Tamaño de página; por encima de 100 se recorta a 100.
+      - name: sort
+        in: query
+        required: false
+        style: form
+        explode: true
+        schema:
+          type: array
+          items:
+            type: string
+            enum:
+            - createdAt
+            - createdAt,asc
+            - createdAt,desc
+        description: Orden pedido por el cliente; sustituye al orden por defecto. Solo `createdAt` es ordenable;
+          cualquier otro campo es 400.
+      responses:
+        '200':
+          description: 'Página de los pedidos del comprador que lo pide. Solo trae las filas de su alcance: el total
+            y las páginas cuentan solo esas.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedOrder'
+        '400':
+          description: '`VALIDATION_ERROR` — La petición no cumple las cotas declaradas del input.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                VALIDATION_ERROR:
+                  summary: La petición no cumple las cotas declaradas del input.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: VALIDATION_ERROR
+                    message: La petición no cumple las cotas declaradas del input.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '401':
+          description: '`UNAUTHENTICATED` — Sin credencial válida.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                UNAUTHENTICATED:
+                  summary: Sin credencial válida.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 401
+                    error: Unauthorized
+                    code: UNAUTHENTICATED
+                    message: Sin credencial válida.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+      security:
+      - bearerAuth: []
+  /api/v1/orders/{id}:
+    get:
+      operationId: getOrder
+      summary: Devuelve un pedido del comprador que lo pide, con sus líneas y el estado de su cobro.
+      tags:
+      - Pedidos
+      description: '- Un pedido de otro comprador se ve como inexistente: responde el mismo `404` que un id que
+        no existe, sin revelar cuál de los dos es.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Id del pedido.
+      responses:
+        '200':
+          description: El pedido, con sus líneas y el estado de su cobro.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: '`VALIDATION_ERROR` — La petición no cumple las cotas declaradas del input.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                VALIDATION_ERROR:
+                  summary: La petición no cumple las cotas declaradas del input.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: VALIDATION_ERROR
+                    message: La petición no cumple las cotas declaradas del input.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '401':
+          description: '`UNAUTHENTICATED` — Sin credencial válida.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                UNAUTHENTICATED:
+                  summary: Sin credencial válida.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 401
+                    error: Unauthorized
+                    code: UNAUTHENTICATED
+                    message: Sin credencial válida.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '404':
+          description: '`ORDER_NOT_FOUND` — No existe un pedido con ese id del comprador que pregunta; también es
+            el error de un pedido que existe pero es de otro comprador, sin revelar cuál.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ORDER_NOT_FOUND:
+                  summary: No existe un pedido con ese id del comprador que pregunta; también es el error de un
+                    pedido que existe pero es de otro comprador, sin revelar cuál.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 404
+                    error: Not Found
+                    code: ORDER_NOT_FOUND
+                    message: No existe un pedido con ese id del comprador que pregunta; también es el error de un
+                      pedido que existe pero es de otro comprador, sin revelar cuál.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+      security:
+      - bearerAuth: []
+  /api/v1/orders/{id}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Anula un pedido que espera la autenticación del comprador (3DS) pidiendo a payment que anule su cobro;
+        el pedido queda en canceling hasta que payment confirma el desenlace.
+      tags:
+      - Pedidos
+      description: '- Orden de evaluación - el pedido no existe, ORDER_NOT_FOUND; es de otro comprador, ORDER_NOT_OWNED;
+        está en canceling o canceled, se devuelve tal cual sin volver a llamar a payment (idempotente por estado);
+        no está en actionRequired, ORDER_NOT_CANCELABLE sin cambiar nada.
+
+        - El pedido pasa a canceling, con cancelOrderPaymentAwaitingSince al instante actual, y se confirma ANTES
+        de llamar a cancelPayment de payment.
+
+        - Con la respuesta de payment se RELEE el pedido; si ya no está en canceling (un evento llegó antes), se
+        responde con su estado actual sin error. Si sigue en canceling - canceled lo pasa a canceled y pide el correo
+        de cancelación (templateCode order-canceled, idempotencyKey "order:<id>:canceled"); canceling lo deja en
+        canceling; failed lo pasa a paymentFailed con su failureReason (processingError si no viene) y pide el correo
+        de pago fallido; authorized, capturing o captured lo pasan a authorized con captureOrderPaymentAwaitingSince
+        al instante actual (la captura y su evento lo terminan); actionRequired lo devuelve a actionRequired y responde
+        ORDER_CANCEL_REJECTED.
+
+        - Toda salida de canceling hacia canceled, paymentFailed o authorized borra customerAction; la vuelta a
+        actionRequired la conserva.
+
+        - Si payment responde PAYMENT_NOT_CANCELABLE (el cobro avanzó, por ejemplo el 3DS se completó a la vez),
+        el pedido vuelve a actionRequired y la operación responde ORDER_PAYMENT_ADVANCED; el evento de payment lo
+        llevará a su desenlace.
+
+        - Si payment responde CANCEL_REJECTED, el pedido vuelve a actionRequired y la operación responde ORDER_CANCEL_REJECTED.
+
+        - Si payment no contesta, responde PAYMENT_NOT_FOUND, no se pudo obtener el token M2M o responde 401 o 403,
+        el pedido queda en canceling y la operación responde 200 con él; reconcileStalledOrders vuelve a pedir la
+        anulación.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+        description: Id del pedido.
+      responses:
+        '200':
+          description: 'El pedido tal como queda: canceled, canceling (payment no confirmó aún), paymentFailed o
+            authorized según responda payment. Repetir la anulación devuelve el pedido tal cual.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '400':
+          description: '`VALIDATION_ERROR` — La petición no cumple las cotas declaradas del input.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                VALIDATION_ERROR:
+                  summary: La petición no cumple las cotas declaradas del input.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 400
+                    error: Bad Request
+                    code: VALIDATION_ERROR
+                    message: La petición no cumple las cotas declaradas del input.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '401':
+          description: '`UNAUTHENTICATED` — Sin credencial válida.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                UNAUTHENTICATED:
+                  summary: Sin credencial válida.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 401
+                    error: Unauthorized
+                    code: UNAUTHENTICATED
+                    message: Sin credencial válida.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '403':
+          description: '`ORDER_NOT_OWNED` — El pedido existe pero es de otro comprador.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ORDER_NOT_OWNED:
+                  summary: El pedido existe pero es de otro comprador.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 403
+                    error: Forbidden
+                    code: ORDER_NOT_OWNED
+                    message: El pedido existe pero es de otro comprador.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '404':
+          description: '`ORDER_NOT_FOUND` — No existe un pedido con ese id.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ORDER_NOT_FOUND:
+                  summary: No existe un pedido con ese id.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 404
+                    error: Not Found
+                    code: ORDER_NOT_FOUND
+                    message: No existe un pedido con ese id.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '409':
+          description: '`ORDER_NOT_CANCELABLE` — El pedido no está en actionRequired (ni ya en canceling o canceled).
+
+
+            `ORDER_PAYMENT_ADVANCED` — Payment ya no admite anular el cobro porque avanzó (por ejemplo el 3DS se
+            completó a la vez); el pedido vuelve a actionRequired hasta que llegue el desenlace.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                ORDER_NOT_CANCELABLE:
+                  summary: El pedido no está en actionRequired (ni ya en canceling o canceled).
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 409
+                    error: Conflict
+                    code: ORDER_NOT_CANCELABLE
+                    message: El pedido no está en actionRequired (ni ya en canceling o canceled).
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                ORDER_PAYMENT_ADVANCED:
+                  summary: Payment ya no admite anular el cobro porque avanzó (por ejemplo el 3DS se completó a
+                    la vez); el pedido vuelve a actionRequired hasta que llegue el desenlace.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 409
+                    error: Conflict
+                    code: ORDER_PAYMENT_ADVANCED
+                    message: Payment ya no admite anular el cobro porque avanzó (por ejemplo el 3DS se completó
+                      a la vez); el pedido vuelve a actionRequired hasta que llegue el desenlace.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+        '422':
+          description: '`INVARIANT_VIOLATED` — La escritura dejaría el pedido fuera de una invariante del dominio;
+            no se escribe nada.
+
+
+            `ORDER_CANCEL_REJECTED` — La pasarela rechazó la anulación; el pedido sigue esperando el 3DS y se puede
+            volver a intentar.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                INVARIANT_VIOLATED:
+                  summary: La escritura dejaría el pedido fuera de una invariante del dominio; no se escribe nada.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: INVARIANT_VIOLATED
+                    message: La escritura dejaría el pedido fuera de una invariante del dominio; no se escribe nada.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+                ORDER_CANCEL_REJECTED:
+                  summary: La pasarela rechazó la anulación; el pedido sigue esperando el 3DS y se puede volver
+                    a intentar.
+                  value:
+                    timestamp: '2026-11-20T10:00:00.000Z'
+                    status: 422
+                    error: Unprocessable Entity
+                    code: ORDER_CANCEL_REJECTED
+                    message: La pasarela rechazó la anulación; el pedido sigue esperando el 3DS y se puede volver
+                      a intentar.
+                    details: null
+                    correlationId: 1f7b0a52-33c9-4a1e-9a44-6c0f2b8d55e1
+      security:
+      - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token de usuario OIDC (claims `sub` y `email`). El proveedor de identidad concreto se decide
+        al generar.
+  schemas:
+    CustomerRef:
+      type: string
+      minLength: 1
+      maxLength: 200
+      description: 'Referencia opaca del comprador: el sub de su token de usuario. Es también el customerRef con
+        el que se pide el cobro a payment.'
+    EmailAddress:
+      type: string
+      maxLength: 254
+      pattern: ^[^@\s]+@[^@\s]+\.[^@\s]+$
+      description: Dirección de correo electrónico del comprador, tal como la trae su token.
+    Amount:
+      type: number
+      minimum: 0
+      multipleOf: 0.001
+      description: Importe en unidades mayores de la moneda (12.50). La escala admite hasta 3 decimales, la misma
+        que acepta payment; cuántos admite de verdad lo fija la moneda (ISO 4217).
+    CurrencyCode:
+      type: string
+      pattern: ^[A-Z]{3}$
+      description: Código de moneda ISO 4217 en mayúsculas.
+    OrderStatus:
+      type: string
+      enum:
+      - pendingPayment
+      - actionRequired
+      - authorized
+      - paid
+      - canceling
+      - canceled
+      - paymentFailed
+      description: Estado del pedido, que sigue el desenlace de su cobro en payment.
+    PaymentFailureReason:
+      type: string
+      enum:
+      - declined
+      - insufficientFunds
+      - expiredCard
+      - authenticationFailed
+      - fraudSuspected
+      - invalidPaymentMethod
+      - notReceived
+      - processingError
+      description: Motivo de fallo del cobro, con el vocabulario neutro que publica payment.
+    OrderLineRequest:
+      type: object
+      description: Una línea tal como la pide el comprador; el precio no viaja, lo pone el servicio.
+      required:
+      - productId
+      - quantity
+      properties:
+        productId:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 99
+    OrderLine:
+      type: object
+      description: Una línea del pedido; congela el producto y su precio en el momento de pedir.
+      required:
+      - id
+      - orderId
+      - productId
+      - sku
+      - productName
+      - unitPrice
+      - quantity
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        orderId:
+          type: string
+          format: uuid
+          description: Pedido al que pertenece la línea.
+        productId:
+          type: string
+          format: uuid
+          description: Id del producto en catalog (referencia por valor a la réplica).
+        sku:
+          type: string
+          maxLength: 64
+          description: SKU del producto al crear el pedido.
+        productName:
+          type: string
+          maxLength: 200
+          description: Nombre del producto al crear el pedido.
+        unitPrice:
+          allOf:
+          - $ref: '#/components/schemas/Amount'
+          description: Precio unitario congelado al crear el pedido.
+        quantity:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 99
+    Order:
+      type: object
+      description: 'Un pedido de un comprador: sus líneas con el precio congelado al crearlo y el seguimiento del
+        cobro que se pidió a payment por su importe total.'
+      required:
+      - id
+      - customerRef
+      - customerEmail
+      - status
+      - currency
+      - totalAmount
+      - lineCount
+      - paymentId
+      - customerAction
+      - failureReason
+      - createdAt
+      - updatedAt
+      - lines
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Id del pedido; es también el chargeRequestId del cobro en payment.
+          readOnly: true
+        customerRef:
+          allOf:
+          - $ref: '#/components/schemas/CustomerRef'
+          description: Comprador titular del pedido (sub de su token).
+          x-personal: true
+        customerEmail:
+          allOf:
+          - $ref: '#/components/schemas/EmailAddress'
+          description: Dirección a la que se notifica el resultado del cobro; sale del claim email del token.
+          x-personal: true
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        currency:
+          allOf:
+          - $ref: '#/components/schemas/CurrencyCode'
+          description: Moneda del pedido; la comparten todos sus productos.
+        totalAmount:
+          allOf:
+          - $ref: '#/components/schemas/Amount'
+          description: Importe a cobrar; suma de precio unitario por cantidad de cada línea.
+          readOnly: true
+        lineCount:
+          type: integer
+          format: int32
+          readOnly: true
+        paymentId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Id del cobro en payment; vacío mientras payment no lo ha registrado.
+        customerAction:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+          description: Acción opaca de autenticación (3DS) que el navegador entrega al componente de la pasarela;
+            solo en actionRequired.
+        failureReason:
+          anyOf:
+          - $ref: '#/components/schemas/PaymentFailureReason'
+          - type: 'null'
+          description: Por qué falló el cobro; solo en paymentFailed.
+        createdAt:
+          type: string
+          format: date-time
+          readOnly: true
+        updatedAt:
+          type: string
+          format: date-time
+          readOnly: true
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderLine'
+          description: Líneas del pedido.
+    PagedOrder:
+      type: object
+      description: Página de pedidos (sobre canónico de paginación offset).
+      required:
+      - items
+      - page
+      - size
+      - totalElements
+      - totalPages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+        page:
+          type: integer
+          minimum: 0
+        size:
+          type: integer
+          minimum: 1
+          maximum: 100
+        totalElements:
+          type: integer
+          format: int64
+          minimum: 0
+        totalPages:
+          type: integer
+          minimum: 0
+    CreateOrderRequest:
+      type: object
+      description: 'Pedido a crear. Exactamente una fuente de pago: `paymentToken` o `paymentMethodId`. El comprador
+        y su email no viajan: salen del token.'
+      required:
+      - lines
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/OrderLineRequest'
+        paymentToken:
+          type: string
+          minLength: 1
+          maxLength: 255
+          writeOnly: true
+          description: Token de un solo uso del componente de la pasarela (comprador presente).
+        paymentMethodId:
+          type: string
+          format: uuid
+          description: Medio de pago guardado del comprador en payment.
+    Error:
+      type: object
+      description: Forma única del cuerpo de error del servicio.
+      required:
+      - timestamp
+      - status
+      - error
+      - code
+      - message
+      - details
+      - correlationId
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        error:
+          type: string
+          description: Nombre del status HTTP.
+        code:
+          type: string
+          description: Código de negocio estable; es el contrato.
+        message:
+          type: string
+          description: Texto humano; no es contrato.
+        details:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+        correlationId:
+          type:
+          - string
+          - 'null'

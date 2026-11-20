@@ -1,0 +1,602 @@
+asyncapi: 3.0.0
+info:
+  title: order
+  version: 0.1.0
+  description: 'Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide
+    el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications.
+
+
+    Contrato asíncrono derivado del diseño Keel (capa messaging). El broker concreto y los nombres físicos de topic/cola
+    se deciden al generar, no aquí. El encargo de correo se publica por outbox: ninguno se pierde si la transacción
+    confirma.'
+defaultContentType: application/json
+channels:
+  paymentEvents:
+    address: paymentEvents
+    title: paymentEvents
+    description: 'Desenlaces de los cobros que publica payment (todos sus clientes comparten el canal). Nombre lógico:
+      el topic/cola físico que lo respalda es parámetro de despliegue.'
+    messages:
+      PaymentAuthorized:
+        $ref: '#/components/messages/PaymentAuthorized'
+      PaymentActionRequired:
+        $ref: '#/components/messages/PaymentActionRequired'
+      PaymentCaptured:
+        $ref: '#/components/messages/PaymentCaptured'
+      PaymentFailed:
+        $ref: '#/components/messages/PaymentFailed'
+      PaymentCanceled:
+        $ref: '#/components/messages/PaymentCanceled'
+      PaymentActionRejected:
+        $ref: '#/components/messages/PaymentActionRejected'
+  catalogEvents:
+    address: catalogEvents
+    title: catalogEvents
+    description: 'Altas, cambios y retiradas de productos que publica catalog. Mientras catalog no exista, los publica
+      un emisor de pruebas con la envoltura Keel y el contrato propuesto aquí. Nombre lógico: el topic/cola físico
+      que lo respalda es parámetro de despliegue.'
+    messages:
+      ProductUpserted:
+        $ref: '#/components/messages/ProductUpserted'
+      ProductRetired:
+        $ref: '#/components/messages/ProductRetired'
+  notificationRequests:
+    address: notificationRequests
+    title: notificationRequests
+    x-keel-external: true
+    description: 'Puerta de entrada por eventos de notifications para pedir correos; la posee notifications. Nombre
+      lógico: el topic/cola físico que lo respalda es parámetro de despliegue.'
+    messages:
+      NotificationRequested:
+        $ref: '#/components/messages/NotificationRequested'
+operations:
+  publishNotificationRequested:
+    action: send
+    channel:
+      $ref: '#/channels/notificationRequests'
+    summary: Se pide el correo del desenlace de un pedido a notifications.
+    messages:
+    - $ref: '#/channels/notificationRequests/messages/NotificationRequested'
+    x-keel-reliability: outbox
+    x-keel-emitted-by:
+    - createOrder
+    - cancelOrder
+    - applyPaymentCaptured
+    - applyPaymentFailed
+    - applyPaymentCanceled
+    - reconcileStalledOrders
+  consumePaymentAuthorized:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: payment autorizó un cobro; si es de un pedido, se pide su captura.
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentAuthorized'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentAuthorized
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumePaymentActionRequired:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: El cobro de un pedido necesita el 3DS del comprador.
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentActionRequired'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentActionRequired
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumePaymentCaptured:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: El cobro de un pedido quedó capturado; el pedido está pagado.
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentCaptured'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentCaptured
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumePaymentFailed:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: El cobro de un pedido falló.
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentFailed'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentFailed
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumePaymentCanceled:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: La autorización del cobro de un pedido quedó anulada (por el comprador, por el plazo del 3DS o por
+      la pasarela).
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentCanceled'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentCanceled
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumePaymentActionRejected:
+    action: receive
+    channel:
+      $ref: '#/channels/paymentEvents'
+    summary: La pasarela rechazó una captura o una anulación y el cobro volvió al estado del que salió.
+    messages:
+    - $ref: '#/channels/paymentEvents/messages/PaymentActionRejected'
+    x-keel-source: payment
+    x-keel-triggers: applyPaymentActionRejected
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumeProductUpserted:
+    action: receive
+    channel:
+      $ref: '#/channels/catalogEvents'
+    summary: Un producto se dio de alta o cambió en catalog; mantiene la copia local.
+    messages:
+    - $ref: '#/channels/catalogEvents/messages/ProductUpserted'
+    x-keel-source: catalog
+    x-keel-triggers: upsertProduct
+    x-keel-input:
+      id: productId
+      sourceVersion: version
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+  consumeProductRetired:
+    action: receive
+    channel:
+      $ref: '#/channels/catalogEvents'
+    summary: catalog retiró un producto; deja de poder pedirse.
+    messages:
+    - $ref: '#/channels/catalogEvents/messages/ProductRetired'
+    x-keel-source: catalog
+    x-keel-triggers: removeProduct
+    x-keel-input:
+      id: productId
+      sourceVersion: version
+    x-keel-on-failure:
+      retry:
+        maxAttempts: 5
+        backoff: exponential
+        initialDelayMs: 1000
+        maxDelayMs: 30000
+      deadLetter: true
+components:
+  messages:
+    NotificationRequested:
+      name: NotificationRequested
+      title: NotificationRequested
+      contentType: application/json
+      summary: Encargo de correo a notifications con el desenlace del cobro de un pedido.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/NotificationRequestedPayload'
+      description: Encargo de correo a notifications con el desenlace del cobro de un pedido. La firma la fija notifications
+        (INTEGRATION.md 0.3.0, §Suscripciones). recipients lleva el customerEmail del pedido; variables lleva orderId,
+        totalAmount, currency y, en un pago fallido, failureReason. totalAmount se escribe como texto con punto
+        decimal, sin separador de miles y con tantos decimales como la moneda según ISO 4217 (EUR "25.00", JPY "2500",
+        KWD "2.500"). metadata.source es el nombre del cliente máquina de order ante notifications.
+    PaymentAuthorized:
+      name: PaymentAuthorized
+      title: PaymentAuthorized
+      contentType: application/json
+      summary: payment autorizó un cobro; si es de un pedido, se pide su captura.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentAuthorizedPayload'
+    PaymentActionRequired:
+      name: PaymentActionRequired
+      title: PaymentActionRequired
+      contentType: application/json
+      summary: El cobro de un pedido necesita el 3DS del comprador.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentActionRequiredPayload'
+    PaymentCaptured:
+      name: PaymentCaptured
+      title: PaymentCaptured
+      contentType: application/json
+      summary: El cobro de un pedido quedó capturado; el pedido está pagado.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentCapturedPayload'
+    PaymentFailed:
+      name: PaymentFailed
+      title: PaymentFailed
+      contentType: application/json
+      summary: El cobro de un pedido falló.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentFailedPayload'
+    PaymentCanceled:
+      name: PaymentCanceled
+      title: PaymentCanceled
+      contentType: application/json
+      summary: La autorización del cobro de un pedido quedó anulada (por el comprador, por el plazo del 3DS o por
+        la pasarela).
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentCanceledPayload'
+    PaymentActionRejected:
+      name: PaymentActionRejected
+      title: PaymentActionRejected
+      contentType: application/json
+      summary: La pasarela rechazó una captura o una anulación y el cobro volvió al estado del que salió.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/PaymentActionRejectedPayload'
+    ProductUpserted:
+      name: ProductUpserted
+      title: ProductUpserted
+      contentType: application/json
+      summary: Un producto se dio de alta o cambió en catalog; mantiene la copia local.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/ProductUpsertedPayload'
+    ProductRetired:
+      name: ProductRetired
+      title: ProductRetired
+      contentType: application/json
+      summary: catalog retiró un producto; deja de poder pedirse.
+      correlationId:
+        $ref: '#/components/correlationIds/keelCorrelationId'
+      payload:
+        type: object
+        required:
+        - metadata
+        - data
+        properties:
+          metadata:
+            $ref: '#/components/schemas/KeelEventMetadata'
+          data:
+            $ref: '#/components/schemas/ProductRetiredPayload'
+  schemas:
+    KeelEventMetadata:
+      type: object
+      description: Metadata transversal de la envoltura Keel; la estampa el servicio al emitir.
+      required:
+      - eventId
+      - eventType
+      - eventVersion
+      - occurredAt
+      - source
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Id único de esta ocurrencia; clave de deduplicación del consumidor.
+        eventType:
+          type: string
+          description: Nombre del evento en el diseño; discriminador cuando el canal lleva varios tipos.
+        eventVersion:
+          type: integer
+          minimum: 1
+          description: Versión del contrato del payload.
+        occurredAt:
+          type: string
+          format: date-time
+          description: Instante UTC en que ocurrió el hecho en el dominio, no el del envío.
+        source:
+          type: string
+          description: Nombre del servicio emisor.
+        correlationId:
+          type:
+          - string
+          - 'null'
+          description: Correlación de la petición que originó el hecho; null si no hubo contexto.
+        traceparent:
+          type:
+          - string
+          - 'null'
+          description: Contexto de traza W3C (traceparent) del hecho; null si el emisor no tiene telemetría.
+    Amount:
+      type: number
+      minimum: 0
+      multipleOf: 0.001
+      description: Importe en unidades mayores de la moneda (12.50). La escala admite hasta 3 decimales, la misma
+        que acepta payment; cuántos admite de verdad lo fija la moneda (ISO 4217).
+    CurrencyCode:
+      type: string
+      pattern: ^[A-Z]{3}$
+      description: Código de moneda ISO 4217 en mayúsculas.
+    EmailAddress:
+      type: string
+      maxLength: 254
+      pattern: ^[^@\s]+@[^@\s]+\.[^@\s]+$
+      description: Dirección de correo electrónico del comprador, tal como la trae su token.
+    NotificationVariable:
+      type: object
+      description: Par nombre-valor que rellena una variable de la plantilla de correo en notifications.
+      required:
+      - name
+      - value
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        value:
+          type: string
+          maxLength: 10000
+    PaymentFailureReason:
+      type: string
+      enum:
+      - declined
+      - insufficientFunds
+      - expiredCard
+      - authenticationFailed
+      - fraudSuspected
+      - invalidPaymentMethod
+      - notReceived
+      - processingError
+      description: Motivo de fallo del cobro, con el vocabulario neutro que publica payment.
+    PaymentStatus:
+      type: string
+      enum:
+      - pending
+      - actionRequired
+      - authorized
+      - capturing
+      - canceling
+      - captured
+      - refunding
+      - refunded
+      - canceled
+      - failed
+      description: Estado de un cobro tal como lo informa payment (vocabulario de su contrato).
+    NotificationRequestedPayload:
+      type: object
+      required:
+      - idempotencyKey
+      - templateCode
+      - recipients
+      properties:
+        idempotencyKey:
+          type: string
+          pattern: ^[A-Za-z0-9._:-]{8,128}$
+        templateCode:
+          type: string
+          pattern: ^[a-z][a-z0-9-]{2,47}$
+        recipients:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailAddress'
+          minItems: 1
+          maxItems: 20
+          x-personal: true
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationVariable'
+          maxItems: 50
+          x-personal: true
+    PaymentAuthorizedPayload:
+      type: object
+      required:
+      - paymentId
+      - chargeRequestId
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        chargeRequestId:
+          type: string
+    PaymentActionRequiredPayload:
+      type: object
+      required:
+      - paymentId
+      - chargeRequestId
+      - customerAction
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        chargeRequestId:
+          type: string
+        customerAction:
+          type: object
+          additionalProperties: true
+    PaymentCapturedPayload:
+      type: object
+      required:
+      - chargeRequestId
+      properties:
+        chargeRequestId:
+          type: string
+    PaymentFailedPayload:
+      type: object
+      required:
+      - paymentId
+      - chargeRequestId
+      - failureReason
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        chargeRequestId:
+          type: string
+        failureReason:
+          $ref: '#/components/schemas/PaymentFailureReason'
+    PaymentCanceledPayload:
+      type: object
+      required:
+      - paymentId
+      - chargeRequestId
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        chargeRequestId:
+          type: string
+    PaymentActionRejectedPayload:
+      type: object
+      required:
+      - chargeRequestId
+      - action
+      - status
+      properties:
+        chargeRequestId:
+          type: string
+        action:
+          type: string
+          enum:
+          - capture
+          - cancel
+          - refund
+        status:
+          $ref: '#/components/schemas/PaymentStatus'
+    ProductUpsertedPayload:
+      type: object
+      required:
+      - productId
+      - sku
+      - name
+      - price
+      - currency
+      - version
+      properties:
+        productId:
+          type: string
+          format: uuid
+        sku:
+          type: string
+          maxLength: 64
+        name:
+          type: string
+          maxLength: 200
+        price:
+          allOf:
+          - $ref: '#/components/schemas/Amount'
+          description: Contrato propuesto - catalog publica price mayor que cero; uno menor o igual deja el producto
+            sin poder pedirse.
+        currency:
+          $ref: '#/components/schemas/CurrencyCode'
+        version:
+          type: integer
+          format: int64
+    ProductRetiredPayload:
+      type: object
+      required:
+      - productId
+      - version
+      properties:
+        productId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+  correlationIds:
+    keelCorrelationId:
+      description: Correlación end-to-end estampada en la envoltura Keel.
+      location: $message.payload#/metadata/correlationId

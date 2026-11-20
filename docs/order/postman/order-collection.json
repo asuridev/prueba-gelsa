@@ -1,0 +1,4838 @@
+{
+  "info": {
+    "name": "order",
+    "description": "Colección derivada de specs/order/validation-scenarios.md: una carpeta por flujo FL-*, una request por paso HTTP. Los pasos de eventos y de los dobles de payment los ejecuta el arnés (se indican en la descripción).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "FL-ORD-001 — alta de un pedido autorizado al momento",
+      "item": [
+        {
+          "name": "FL-ORD-001 · A — Alta de un pedido autorizado al momento (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-001"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: catálogo base; payment responde a requestCharge con authorized (PAY1). No se pide ninguna captura ni se encarga correo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('Location termina en el id', () => pm.expect(pm.response.headers.get('Location')).to.match(new RegExp('/api/v1/orders/' + j.id + '$')));",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));",
+                  "pm.test('j.customerRef = ana', () => pm.expect(j.customerRef).to.eql(\"ana\"));",
+                  "pm.test('j.customerEmail = ana@example.com', () => pm.expect(j.customerEmail).to.eql(\"ana@example.com\"));",
+                  "pm.test('j.currency = EUR', () => pm.expect(j.currency).to.eql(\"EUR\"));",
+                  "pm.test('j.totalAmount = 32.25', () => pm.expect(j.totalAmount).to.eql(32.25));",
+                  "pm.test('j.lineCount = 2', () => pm.expect(j.lineCount).to.eql(2));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));",
+                  "pm.test('j.failureReason = None', () => pm.expect(j.failureReason).to.eql(null));",
+                  "pm.test('dos líneas', () => pm.expect(j.lines).to.have.lengthOf(2));",
+                  "['chargeOrderAwaitingSince','captureOrderPaymentAwaitingSince','actionRequiredSince','cancelOrderPaymentAwaitingSince'].forEach(k => pm.expect(j).to.not.have.property(k));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-001 · B — getOrder devuelve el mismo pedido (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));",
+                  "pm.test('j.totalAmount = 32.25', () => pm.expect(j.totalAmount).to.eql(32.25));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-002 — el cobro necesita 3DS",
+      "item": [
+        {
+          "name": "FL-ORD-002 · A — El cobro necesita 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-002"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentMethodId\": \"cccccccc-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde a requestCharge con actionRequired y una customerAction."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));",
+                  "pm.test('j.totalAmount = 12.5', () => pm.expect(j.totalAmount).to.eql(12.5));",
+                  "pm.test('customerAction es un objeto', () => pm.expect(j.customerAction).to.be.an('object'));",
+                  "pm.test('j.failureReason = None', () => pm.expect(j.failureReason).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-003 — el cobro falla al momento y se encarga el correo de fallo",
+      "item": [
+        {
+          "name": "FL-ORD-003 · A — El cobro falla al momento (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-003"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_no_funds\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde a requestCharge con failed (insufficientFunds). Se encarga el correo order-payment-failed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));",
+                  "pm.test('j.failureReason = insufficientFunds', () => pm.expect(j.failureReason).to.eql(\"insufficientFunds\"));",
+                  "pm.test('j.totalAmount = 25', () => pm.expect(j.totalAmount).to.eql(25));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-004 — payment rechaza el medio, o rechaza la petición por otro motivo",
+      "item": [
+        {
+          "name": "FL-ORD-004 · A — payment rechaza el medio de pago (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-004a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentMethodId\": \"cccccccc-0000-4000-8000-000000000009\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde 422 PAYMENT_METHOD_UNAVAILABLE. Un rechazo del cobro no es un error HTTP."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));",
+                  "pm.test('j.failureReason = invalidPaymentMethod', () => pm.expect(j.failureReason).to.eql(\"invalidPaymentMethod\"));",
+                  "pm.test('j.paymentId = None', () => pm.expect(j.paymentId).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-004 · B — payment rechaza la petición por otro motivo (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-004b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_x\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde 400 CURRENCY_UNKNOWN."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o2', j.id);",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));",
+                  "pm.test('j.failureReason = processingError', () => pm.expect(j.failureReason).to.eql(\"processingError\"));",
+                  "pm.test('j.paymentId = None', () => pm.expect(j.paymentId).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-005 — payment no contesta — el pedido queda pendiente",
+      "item": [
+        {
+          "name": "FL-ORD-005 · A — payment no contesta: el pedido queda pendiente (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-005"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a requestCharge en ninguno de sus 3 intentos (o responde 401/403, o no hay token M2M): mismo resultado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('Location termina en el id', () => pm.expect(pm.response.headers.get('Location')).to.match(new RegExp('/api/v1/orders/' + j.id + '$')));",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));",
+                  "pm.test('j.paymentId = None', () => pm.expect(j.paymentId).to.eql(null));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));",
+                  "pm.test('j.failureReason = None', () => pm.expect(j.failureReason).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-006 — payment devuelve un cobro ya capturado o anulado (respuesta a una repetición)",
+      "item": [
+        {
+          "name": "FL-ORD-006 · A — payment devuelve un cobro ya capturado (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-006a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde a la primera llamada con captured (PAY1): el pedido queda authorized y el evento terminará el trabajo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-006 · B — payment devuelve un cobro anulado (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-006b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde a la segunda llamada con canceled. Se encarga el correo order-canceled."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o2', j.id);",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-007 — reintento con la misma clave y clave reutilizada con otro contenido",
+      "item": [
+        {
+          "name": "FL-ORD-007 · A — Primer alta con la clave (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-007"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · B — Repetición con la misma clave y contenido (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-007"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Devuelve el pedido en su estado actual, con Location; payment sigue con una sola llamada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('mismo id', () => pm.expect(j.id).to.eql(pm.collectionVariables.get('o1')));",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · C — Un solo pedido en el listado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 1', () => pm.expect(j.totalElements).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · D — Misma clave con otro contenido (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-007"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "const j = pm.response.json();",
+                  "pm.test('code IDEMPOTENCY_KEY_REUSED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REUSED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · E — La clave es por comprador: luis la reutiliza (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_luis}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-007"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.customerRef = luis', () => pm.expect(j.customerRef).to.eql(\"luis\"));",
+                  "pm.test('pedido nuevo', () => pm.expect(j.id).to.not.eql(pm.collectionVariables.get('o1')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · F — Otra clave del mismo contenido crea otro pedido (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-007b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.customerRef = ana', () => pm.expect(j.customerRef).to.eql(\"ana\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-007 · G — Dos pedidos de ana (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 2', () => pm.expect(j.totalElements).to.eql(2));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-008 — dos peticiones con la misma clave a la vez",
+      "item": [
+        {
+          "name": "FL-ORD-008 · A — Alta con la clave a la vez que otra idéntica (201|409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-008"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés envía esta petición dos veces a la vez: o las dos responden 201 con el mismo id, o una 201 y la otra 409 IDEMPOTENCY_KEY_IN_PROGRESS. payment tarda 500 ms."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201/409', () => pm.expect([201, 409]).to.include(pm.response.code));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-008 · B — Un solo pedido (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 1', () => pm.expect(j.totalElements).to.eql(1));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-009 — errores de validación de negocio y su precedencia",
+      "item": [
+        {
+          "name": "FL-ORD-009 · A — Sin fuente de pago (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PAYMENT_SOURCE_INVALID', () => pm.expect(pm.response.json().code).to.eql('PAYMENT_SOURCE_INVALID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · B — Con las dos fuentes de pago (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_x\",\n  \"paymentMethodId\": \"cccccccc-0000-4000-8000-000000000001\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PAYMENT_SOURCE_INVALID', () => pm.expect(pm.response.json().code).to.eql('PAYMENT_SOURCE_INVALID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · C — Producto repetido (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009c"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code DUPLICATE_ORDER_LINE', () => pm.expect(pm.response.json().code).to.eql('DUPLICATE_ORDER_LINE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · D — Producto inexistente (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009d"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000009\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · E — Monedas distintas (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009e"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000003\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code CURRENCY_MISMATCH', () => pm.expect(pm.response.json().code).to.eql('CURRENCY_MISMATCH'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · F — Precedencia: la fuente de pago va antes que las líneas (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009f"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000009\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000009\",\n      \"quantity\": 2\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PAYMENT_SOURCE_INVALID', () => pm.expect(pm.response.json().code).to.eql('PAYMENT_SOURCE_INVALID'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · G — Precedencia: la existencia va antes que la moneda (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-009g"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000009\",\n      \"quantity\": 1\n    },\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000003\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-009 · H — Ningún pedido se creó (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 0', () => pm.expect(j.totalElements).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-010 — la cabecera de idempotencia es obligatoria",
+      "item": [
+        {
+          "name": "FL-ORD-010 · A — Sin cabecera Idempotency-Key (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code IDEMPOTENCY_KEY_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('IDEMPOTENCY_KEY_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-010 · B — Precedencia: la forma del cuerpo va antes que la cabecera (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-010 · C — Ningún pedido se creó (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 0', () => pm.expect(j.totalElements).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-011 — el token del comprador no trae un email utilizable",
+      "item": [
+        {
+          "name": "FL-ORD-011 · A — Token sin claim email (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_eva-no-email}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-eva-011a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code CUSTOMER_EMAIL_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('CUSTOMER_EMAIL_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-011 · B — Token con un email que no es una dirección (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_eva-bad-email}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-eva-011b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code CUSTOMER_EMAIL_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('CUSTOMER_EMAIL_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-011 · C — Precedencia: el email va antes que la cabecera de idempotencia (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_eva-no-email}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code CUSTOMER_EMAIL_REQUIRED', () => pm.expect(pm.response.json().code).to.eql('CUSTOMER_EMAIL_REQUIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-011 · D — Precedencia: la forma del cuerpo va antes que el email (400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_eva-no-email}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-eva-011c"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-012 — un comprador no ve los pedidos de otro",
+      "item": [
+        {
+          "name": "FL-ORD-012 · A — ana crea un pedido (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-012"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-012 · B — luis lee el pedido de ana: se ve como inexistente (404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_luis}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-012 · C — El listado de luis no incluye el pedido de ana (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_luis}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.items = []', () => pm.expect(j.items).to.eql([]));",
+                  "pm.test('j.page = 0', () => pm.expect(j.page).to.eql(0));",
+                  "pm.test('j.size = 20', () => pm.expect(j.size).to.eql(20));",
+                  "pm.test('j.totalElements = 0', () => pm.expect(j.totalElements).to.eql(0));",
+                  "pm.test('j.totalPages = 0', () => pm.expect(j.totalPages).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-012 · D — Pedido inexistente (404)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-ORD-013 — listado paginado de mis pedidos",
+      "item": [
+        {
+          "name": "FL-ORD-013 · A — ana crea un pedido (25 veces) (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Se repite sobre sí misma hasta crear 25 pedidos (contador `seedN`); cada alta lleva su propia Idempotency-Key."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Number(pm.collectionVariables.get('seedN') || 0) + 1;",
+                  "pm.collectionVariables.set('seedN', n);",
+                  "pm.collectionVariables.set('idemKey', 'k-ana-013-' + n);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "if (Number(pm.collectionVariables.get('seedN')) < 25) { pm.execution.setNextRequest(pm.info.requestName); } else { pm.collectionVariables.unset('seedN'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · B — luis crea un pedido (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_luis}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-luis-013"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.customerRef = luis', () => pm.expect(j.customerRef).to.eql(\"luis\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · C — Primera página (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.page = 0', () => pm.expect(j.page).to.eql(0));",
+                  "pm.test('j.size = 20', () => pm.expect(j.size).to.eql(20));",
+                  "pm.test('j.totalElements = 25', () => pm.expect(j.totalElements).to.eql(25));",
+                  "pm.test('j.totalPages = 2', () => pm.expect(j.totalPages).to.eql(2));",
+                  "pm.test('20 items', () => pm.expect(j.items).to.have.lengthOf(20));",
+                  "pm.test('solo de ana', () => j.items.forEach(o => pm.expect(o.customerRef).to.eql('ana')));",
+                  "pm.test('createdAt descendente', () => pm.expect(j.items[0].createdAt >= j.items[19].createdAt).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · D — Segunda página (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?page=1&size=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.page = 1', () => pm.expect(j.page).to.eql(1));",
+                  "pm.test('5 items', () => pm.expect(j.items).to.have.lengthOf(5));",
+                  "pm.test('j.totalElements = 25', () => pm.expect(j.totalElements).to.eql(25));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · E — Página fuera de rango (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?page=5&size=20"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.items = []', () => pm.expect(j.items).to.eql([]));",
+                  "pm.test('j.page = 5', () => pm.expect(j.page).to.eql(5));",
+                  "pm.test('j.size = 20', () => pm.expect(j.size).to.eql(20));",
+                  "pm.test('j.totalElements = 0', () => pm.expect(j.totalElements).to.eql(0));",
+                  "pm.test('j.totalPages = 0', () => pm.expect(j.totalPages).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · F — size por encima del tope se recorta a 100 (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?size=500"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.size = 100', () => pm.expect(j.size).to.eql(100));",
+                  "pm.test('25 items', () => pm.expect(j.items).to.have.lengthOf(25));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · G — Orden ascendente por createdAt (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?sort=createdAt,asc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('createdAt ascendente', () => pm.expect(j.items[0].createdAt <= j.items[19].createdAt).to.be.true);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · H — Orden por un campo no ordenable (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?sort=totalAmount,desc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · I — Filtro por estado sin coincidencias (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?status=paid"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.items = []', () => pm.expect(j.items).to.eql([]));",
+                  "pm.test('j.totalElements = 0', () => pm.expect(j.totalElements).to.eql(0));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-ORD-013 · J — Filtro por un estado que no existe (400)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?status=desconocido"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 400', () => pm.response.to.have.status(400));",
+                  "const j = pm.response.json();",
+                  "pm.test('code VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-001 — autorizado → captura → pagado, con su correo",
+      "item": [
+        {
+          "name": "FL-PAY-001 · A — Pedido que queda en pendingPayment (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p01"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 2\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde pending a requestCharge y captured a capturePayment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-001 · B — Tras PaymentAuthorized el pedido está autorizado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentAuthorized (eventId e-auth-1) y lo reentrega; payment recibe una sola llamada de captura."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));",
+                  "pm.test('j.paymentId = bbbbbbbb-0000-4000-8000-000000000001', () => pm.expect(j.paymentId).to.eql(\"bbbbbbbb-0000-4000-8000-000000000001\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-001 · C — Tras PaymentCaptured el pedido está pagado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentCaptured (e-cap-1) y lo reentrega; se encarga un solo correo order-paid."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paid', () => pm.expect(j.status).to.eql(\"paid\"));",
+                  "pm.test('j.failureReason = None', () => pm.expect(j.failureReason).to.eql(null));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-002 — el cobro pasa a necesitar 3DS por evento",
+      "item": [
+        {
+          "name": "FL-PAY-002 · A — Pedido que queda en pendingPayment (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p02"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-002 · B — Tras PaymentActionRequired el pedido espera el 3DS (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentActionRequired (e-ar-1) con su customerAction y lo reentrega."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));",
+                  "pm.test('customerAction es un objeto', () => pm.expect(j.customerAction).to.be.an('object'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-003 — el cobro falla por evento",
+      "item": [
+        {
+          "name": "FL-PAY-003 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p03"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde actionRequired."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-003 · B — Tras PaymentFailed el pedido está en paymentFailed (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentFailed (e-fail-1, authenticationFailed) y lo reentrega; se encarga un solo correo order-payment-failed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));",
+                  "pm.test('j.failureReason = authenticationFailed', () => pm.expect(j.failureReason).to.eql(\"authenticationFailed\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-004 — la autorización queda anulada por evento",
+      "item": [
+        {
+          "name": "FL-PAY-004 · A — Pedido en pendingPayment (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p04"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde pending; después llega PaymentActionRequired y el pedido pasa a actionRequired."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-004 · B — Tras PaymentCanceled el pedido está cancelado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentCanceled (e-can-1), lo reentrega y publica un PaymentFailed posterior (no hace nada: canceled es terminal)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-005 — payment rechaza la anulación y el pedido vuelve",
+      "item": [
+        {
+          "name": "FL-PAY-005 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p05"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde actionRequired a requestCharge y canceling a cancelPayment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-005 · B — Anular el pedido: queda en canceling (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceling', () => pm.expect(j.status).to.eql(\"canceling\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-005 · C — Tras PaymentActionRejected (cancel) el pedido vuelve a actionRequired (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentActionRejected (e-rej-1, action cancel, status actionRequired) y lo reentrega; uno posterior con action capture no cambia nada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));",
+                  "pm.test('conserva customerAction', () => pm.expect(j.customerAction).to.be.an('object'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PAY-007 — autorizado desde canceling (el 3DS se completó mientras se anulaba)",
+      "item": [
+        {
+          "name": "FL-PAY-007 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-p07"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-007 · B — Anular el pedido: queda en canceling (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceling', () => pm.expect(j.status).to.eql(\"canceling\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PAY-007 · C — Tras PaymentAuthorized el pedido está autorizado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentAuthorized (e-auth-7); payment recibe una sola llamada de captura."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-001 — anular un pedido que espera el 3DS",
+      "item": [
+        {
+          "name": "FL-CAN-001 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c01"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde actionRequired a requestCharge y canceled a cancelPayment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-001 · B — Anular el pedido (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel",
+            "description": "Se encarga el correo order-canceled."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));",
+                  "pm.test('j.failureReason = None', () => pm.expect(j.failureReason).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-001 · C — Repetir la anulación es idempotente por estado (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel",
+            "description": "payment sigue con una sola llamada de anulación y no se encarga un segundo correo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-002 — no se puede anular un pedido que no espera el 3DS",
+      "item": [
+        {
+          "name": "FL-CAN-002 · A — Pedido que acaba pagado (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c02"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized; llegan PaymentAuthorized y PaymentCaptured y el pedido queda paid."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-002 · B — Anular un pedido que no espera el 3DS (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_NOT_CANCELABLE', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_CANCELABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-002 · C — Anular el pedido de otro comprador (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_luis}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel",
+            "description": "La propiedad se comprueba antes que el estado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 403', () => pm.response.to.have.status(403));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_NOT_OWNED', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_OWNED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-002 · D — Anular un pedido inexistente (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 404', () => pm.response.to.have.status(404));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ORDER_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-003 — payment ya no admite anular, o rechaza la anulación",
+      "item": [
+        {
+          "name": "FL-CAN-003 · A — Primer pedido esperando el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c03a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: cobro PAY1; payment responde 409 PAYMENT_NOT_CANCELABLE a su anulación."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-003 · B — Segundo pedido esperando el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c03b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: cobro PAY2; payment responde 422 CANCEL_REJECTED a su anulación."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o2', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-003 · C — El cobro avanzó mientras se anulaba (409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 409', () => pm.response.to.have.status(409));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_PAYMENT_ADVANCED', () => pm.expect(pm.response.json().code).to.eql('ORDER_PAYMENT_ADVANCED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-003 · D — El primer pedido sigue esperando el 3DS (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));",
+                  "pm.test('conserva customerAction', () => pm.expect(j.customerAction).to.be.an('object'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-003 · E — La pasarela rechaza la anulación (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o2}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code ORDER_CANCEL_REJECTED', () => pm.expect(pm.response.json().code).to.eql('ORDER_CANCEL_REJECTED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-003 · F — El segundo pedido sigue esperando el 3DS (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o2}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-004 — la anulación llega tarde — payment responde autorizado",
+      "item": [
+        {
+          "name": "FL-CAN-004 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c04"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized a cancelPayment (la anulación llega tarde)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-004 · B — La anulación llega tarde: el pedido queda autorizado (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel",
+            "description": "Después llega PaymentAuthorized y payment recibe una sola llamada de captura."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));",
+                  "pm.test('j.customerAction = None', () => pm.expect(j.customerAction).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-005 — payment no contesta a la anulación",
+      "item": [
+        {
+          "name": "FL-CAN-005 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c05"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a cancelPayment en ninguno de sus intentos."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-005 · B — payment no contesta: el pedido queda en canceling (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceling', () => pm.expect(j.status).to.eql(\"canceling\"));",
+                  "pm.test('customerAction sigue presente', () => pm.expect(j.customerAction).to.be.an('object'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-005 · C — Tras PaymentCanceled el pedido está cancelado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: publica PaymentCanceled (e-can-c5); se encarga el correo order-canceled."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-CAN-006 — dos anulaciones del mismo pedido a la vez",
+      "item": [
+        {
+          "name": "FL-CAN-006 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-c06"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde canceling a cancelPayment con 300 ms de retardo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-006 · B — Dos anulaciones a la vez (200|409)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel",
+            "description": "El arnés envía esta petición dos veces a la vez: las dos 200 con canceling, o una 200 y la otra 409 CONCURRENT_MODIFICATION."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200/409', () => pm.expect([200, 409]).to.include(pm.response.code));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-CAN-006 · C — El pedido está en canceling (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceling', () => pm.expect(j.status).to.eql(\"canceling\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-001 — el cobro que payment nunca registró se da por fallido (espera agotada de chargeOrder)",
+      "item": [
+        {
+          "name": "FL-REC-001 · A — Pedido en pendingPayment que payment nunca registró (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r01"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a requestCharge y responde 404 PAYMENT_NOT_FOUND a la consulta por chargeRequestId."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-001 · B — Tras el barrido el pedido está en paymentFailed (notReceived) (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: envejece la marca de espera de chargeOrder y deja pasar un ciclo de reconcileStalledOrders."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));",
+                  "pm.test('j.failureReason = notReceived', () => pm.expect(j.failureReason).to.eql(\"notReceived\"));",
+                  "pm.test('j.paymentId = None', () => pm.expect(j.paymentId).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-002 — rescate de un pedido pendiente que payment sí cobró, y lo que acaba de entrar en espera no se toca",
+      "item": [
+        {
+          "name": "FL-REC-002 · A — Pedido pendiente que payment sí cobró (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r02a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a requestCharge; su marca de espera se envejece."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-002 · B — Pedido pendiente recién entrado en espera (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r02b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Su marca de espera se retiene en el futuro: el barrido no lo toca."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o2', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-002 · C — El barrido lleva el primero a paid (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: deja pasar un ciclo; payment responde captured a la consulta de order:{o1}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paid', () => pm.expect(j.status).to.eql(\"paid\"));",
+                  "pm.test('j.paymentId = bbbbbbbb-0000-4000-8000-000000000001', () => pm.expect(j.paymentId).to.eql(\"bbbbbbbb-0000-4000-8000-000000000001\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-002 · D — El segundo no se toca (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o2}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-003 — un cobro aún pendiente en payment renueva la espera",
+      "item": [
+        {
+          "name": "FL-REC-003 · A — Pedido en pendingPayment (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r03"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a requestCharge y responde pending a la consulta."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-003 · B — Mientras payment diga pending no se rinde a paymentFailed (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: envejece la marca y deja pasar dos ciclos del barrido."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = pendingPayment', () => pm.expect(j.status).to.eql(\"pendingPayment\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-004 — la captura que no se confirmó se vuelve a pedir (espera agotada de captureOrderPayment)",
+      "item": [
+        {
+          "name": "FL-REC-004 · A — Pedido autorizado cuyo PaymentAuthorized se perdió (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r04"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized; el evento acaba en la deadLetter."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = authorized', () => pm.expect(j.status).to.eql(\"authorized\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-004 · B — El barrido vuelve a pedir la captura y el pedido queda pagado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: envejece la marca de captureOrderPayment, hace que payment responda captured y deja pasar un ciclo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paid', () => pm.expect(j.status).to.eql(\"paid\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-005 — la anulación que no se confirmó se vuelve a pedir (espera agotada de cancelOrderPayment)",
+      "item": [
+        {
+          "name": "FL-REC-005 · A — Pedido que espera el 3DS (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-r05"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment no contesta a cancelPayment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = actionRequired', () => pm.expect(j.status).to.eql(\"actionRequired\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-005 · B — La anulación queda sin confirmar (200)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceling', () => pm.expect(j.status).to.eql(\"canceling\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-005 · C — El barrido vuelve a pedir la anulación y el pedido queda cancelado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "El arnés hace antes: envejece la marca de cancelOrderPayment, hace que payment responda canceled y deja pasar un ciclo."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = canceled', () => pm.expect(j.status).to.eql(\"canceled\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-REC-007 — el barrido en clúster — dos réplicas, una sola llamada por pedido",
+      "item": [
+        {
+          "name": "FL-REC-007 · A — Alta de pedido pendiente (6 veces) (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idemKey}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Se repite sobre sí misma hasta crear 6 pedidos (contador `seedR`); cada alta lleva su propia Idempotency-Key."
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const n = Number(pm.collectionVariables.get('seedR') || 0) + 1;",
+                  "pm.collectionVariables.set('seedR', n);",
+                  "pm.collectionVariables.set('idemKey', 'k-ana-r07-' + n);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "if (Number(pm.collectionVariables.get('seedR')) < 6) { pm.execution.setNextRequest(pm.info.requestName); } else { pm.collectionVariables.unset('seedR'); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-REC-007 · B — Los seis pedidos existen (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders?size=100",
+            "description": "Con dos réplicas vivas y cinco marcas envejecidas (la sexta retenida), el barrido hace una sola consulta por pedido; los cinco acaban authorized o paid y el sexto sigue pendingPayment. Se verifica contra los dobles de payment."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.totalElements = 6', () => pm.expect(j.totalElements).to.eql(6));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PRD-001 — el alta y el cambio de precio se aplican; la reentrega no tiene efecto",
+      "item": [
+        {
+          "name": "FL-PRD-001 · A — Pedido con el precio de la versión 1 (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d01a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted (e-p1-v1, price 12.50, version 1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.lines[0].unitPrice = 12.5', () => pm.expect(j.lines[0].unitPrice).to.eql(12.5));",
+                  "pm.test('j.totalAmount = 12.5', () => pm.expect(j.totalAmount).to.eql(12.5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-001 · B — Pedido con el precio de la versión 2 (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d01b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted (e-p1-v2, price 15.00, version 2)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.lines[0].unitPrice = 15', () => pm.expect(j.lines[0].unitPrice).to.eql(15));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-001 · C — El primer pedido conserva su precio congelado (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.lines[0].unitPrice = 12.5', () => pm.expect(j.lines[0].unitPrice).to.eql(12.5));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-001 · D — Una versión vieja reentregada se descarta (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d01c"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: reentrega e-p1-v1 (version 1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.lines[0].unitPrice = 15', () => pm.expect(j.lines[0].unitPrice).to.eql(15));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-001 · E — Un precio cero deja el producto sin poder pedirse (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d01d"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted (e-p1-bad, price 0, version 3)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PRD-002 — el producto retirado no se puede pedir y una alta vieja no lo resucita",
+      "item": [
+        {
+          "name": "FL-PRD-002 · A — Producto retirado (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d02a"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted de P2 (version 1) y ProductRetired (version 2)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-002 · B — Un alta antigua no resucita la lápida (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d02b"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted de P2 con version 1."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-PRD-002 · C — Catalog vuelve a poner el producto a la venta (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d02c"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000002\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductUpserted de P2 con price 8.00 y version 3."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.lines[0].unitPrice = 8', () => pm.expect(j.lines[0].unitPrice).to.eql(8));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PRD-003 — el producto que la copia no tiene",
+      "item": [
+        {
+          "name": "FL-PRD-003 · A — Producto que la copia no tiene (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d03"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: arranque en frío, ningún producto publicado. payment no recibe ninguna llamada."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-PRD-004 — la retirada que llega antes que el alta",
+      "item": [
+        {
+          "name": "FL-PRD-004 · A — La retirada llegó antes que el alta (422)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-d04"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000003\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El arnés hace antes: publica ProductRetired de P3 (version 2) y después ProductUpserted de P3 (version 1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 422', () => pm.response.to.have.status(422));",
+                  "const j = pm.response.json();",
+                  "pm.test('code PRODUCT_NOT_AVAILABLE', () => pm.expect(pm.response.json().code).to.eql('PRODUCT_NOT_AVAILABLE'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-OBX-001 — el encargo de correo sobrevive a un canal indisponible",
+      "item": [
+        {
+          "name": "FL-OBX-001 · A — Alta con el canal de eventos indisponible (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-x01"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde failed (declined); el canal de eventos está indisponible. La indisponibilidad no llega al cliente."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-OBX-001 · B — El pedido sigue en paymentFailed (200)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/{{o1}}",
+            "description": "Al volver el canal, en 10 s sale exactamente un NotificationRequested con el correlationId de la alta."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "const j = pm.response.json();",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-OBX-002 — el encargo que el relay abandona no se pierde en silencio",
+      "item": [
+        {
+          "name": "FL-OBX-002 · A — Alta cuyo encargo de correo el relay abandona (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-x02"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde failed; el canal sigue caído hasta agotar los reintentos. El servidor informa de un evento abandonado."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "pm.collectionVariables.set('o1', j.id);",
+                  "pm.test('j.status = paymentFailed', () => pm.expect(j.status).to.eql(\"paymentFailed\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "FL-SEC-001 — sin credencial y desde el navegador",
+      "item": [
+        {
+          "name": "FL-SEC-001 · A — createOrder sin credencial (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-s00"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · B — getOrder sin credencial (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · C — listMyOrders sin credencial (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · D — cancelOrder sin credencial (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · E — createOrder con token caducado (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana-expired}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-s00"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · F — getOrder con token caducado (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana-expired}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · G — listMyOrders con token caducado (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana-expired}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · H — cancelOrder con token caducado (401)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana-expired}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders/dddddddd-0000-4000-8000-000000000000/cancel"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "const j = pm.response.json();",
+                  "pm.test('code UNAUTHENTICATED', () => pm.expect(pm.response.json().code).to.eql('UNAUTHENTICATED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · I — Preflight CORS desde un origen permitido (200|204)",
+          "request": {
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webOrigin}}"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              },
+              {
+                "key": "Access-Control-Request-Headers",
+                "value": "Authorization, Content-Type, Idempotency-Key"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "description": "Acepta POST y las tres cabeceras, con Access-Control-Max-Age 3600 y sin Access-Control-Allow-Credentials: true."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200/204', () => pm.expect([200, 204]).to.include(pm.response.code));",
+                  "pm.test('max-age 3600', () => pm.expect(pm.response.headers.get('Access-Control-Max-Age')).to.eql('3600'));",
+                  "pm.test('sin allow-credentials', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Credentials')).to.not.eql('true'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "FL-SEC-001 · J — Alta cross-origin: el navegador puede leer Location y X-Correlation-Id (201)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token_ana}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "k-ana-s01"
+              },
+              {
+                "key": "Origin",
+                "value": "{{webOrigin}}"
+              }
+            ],
+            "url": "{{baseUrl}}/api/v1/orders",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"lines\": [\n    {\n      \"productId\": \"aaaaaaaa-0000-4000-8000-000000000001\",\n      \"quantity\": 1\n    }\n  ],\n  \"paymentToken\": \"tok_visa_ok\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Given: payment responde authorized."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201', () => pm.response.to.have.status(201));",
+                  "const j = pm.response.json();",
+                  "const eh = pm.response.headers.get('Access-Control-Expose-Headers') || '';",
+                  "pm.test('expone Location y X-Correlation-Id', () => { pm.expect(eh).to.include('Location'); pm.expect(eh).to.include('X-Correlation-Id'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "keelVersion",
+      "value": "0.1.0"
+    },
+    {
+      "key": "webOrigin",
+      "value": "http://localhost:3000"
+    }
+  ]
+}

@@ -77,16 +77,6 @@ Stripe real. Si tienes una clave `sk_test_…`, puedes usar Stripe real poniénd
 La siembra ([`compose/seed/seed.sh`](compose/seed/seed.sh)) crea el comprador `buyer`, el cliente M2M con el
 que order llama a payment, el remitente y las tres plantillas de correo, y emula tres productos del catálogo.
 
-Dos ajustes son **parches de despliegue**, no del diseño:
-
-- notifications escucha en un canal genérico (`any-registered-system.events`) y order publica en el suyo
-  (`order.events`). La siembra los une con un binding entre exchanges.
-- notifications solo acepta eventos de emisores registrados, y order no estaba en la lista. Se añade por
-  configuración.
-
-El arreglo de verdad es declarar a order como emisor en el diseño de notifications (`/keel-evolve
-specs/notifications`). Los avisos (webhooks) de Stripe no llegan a localhost: payment conoce el desenlace por
-la respuesta síncrona y por su barrido.
 
 ### Mirar por dentro: bases de datos y eventos
 
@@ -168,11 +158,6 @@ Abre http://localhost:15672 y entra con **`guest` / `guest`**.
 Estas tres colas crecen sin parar mientras el sistema está arriba. Para vaciarlas, en cada una usa **Purge
 messages**, o apaga con `bash down.sh -v`.
 
-> Edita libremente esta introducción para describir tu organización, convenciones o cómo contribuir.
-> La tabla de la sección **Servicios diseñados** la genera `keel index` (lo ejecutan `/keel-design` al
-> cerrar un diseño, `/keel-handoff` y `/keel-docs`); **no edites a mano el contenido entre los
-> marcadores**, se pisa en la siguiente ejecución. `keel index --check` comprueba, sin escribir, que el
-> índice sigue al día.
 
 ## Servicios diseñados
 
@@ -190,7 +175,7 @@ servidor-a-servidor** (`INTEGRATION.md`, de `/keel-integrate`).
 | Diseño | Dominio | Madurez | Resumen | Capas | Documentación |
 |---|---|---|---|---|---|
 | [`notifications`](specs/notifications/) | — | — | Envía correo transaccional a partir de plantillas que gestiona negocio, a petición de los sistemas de la organización por HTTP o por eventos, sin enviar nunca dos veces el mismo correo. | `domain`, `use-cases`, `api`, `security`, `messaging`, `persistence`, `mail` | [diseño](docs/notifications/DESIGN.md) · [panel](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/notifications/overview.html) · [API](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/notifications/openapi.html) · [eventos](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/notifications/asyncapi.html) · [integración](docs/notifications/INTEGRATION.md) |
-| [`order`](specs/order/) | commerce | — | Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications. | `domain`, `use-cases`, `api`, `security`, `messaging`, `http-clients`, `dependencies`, `persistence` | [diseño](docs/order/DESIGN.md) |
+| [`order`](specs/order/) | commerce | — | Recibe los pedidos de los compradores, calcula su importe con la copia local del catálogo, pide el cobro a payment, sigue su desenlace y lo notifica al comprador a través de notifications. | `domain`, `use-cases`, `api`, `security`, `messaging`, `http-clients`, `dependencies`, `persistence` | [diseño](docs/order/DESIGN.md) · [panel](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/order/overview.html) · [API](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/order/openapi.html) · [eventos](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/order/asyncapi.html) |
 | [`payment`](specs/payment/) | commerce | — | Cobra con tarjeta, a través de una pasarela intercambiable, los importes que le piden otros servidores — autorizar, capturar, anular y devolver —, y guarda medios de pago para cobrar sin el cliente presente. | `domain`, `use-cases`, `api`, `security`, `messaging`, `persistence`, `payments` | [diseño](docs/payment/DESIGN.md) · [panel](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/payment/overview.html) · [API](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/payment/openapi.html) · [eventos](https://htmlpreview.github.io/?https://raw.githubusercontent.com/asuridev/prueba-gelsa/main/docs/payment/asyncapi.html) · [integración](docs/payment/INTEGRATION.md) |
 <!-- keel:servicios:end -->
 
